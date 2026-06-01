@@ -36,6 +36,11 @@ def main() -> None:
         action="store_true",
         help="Redownload WAV files even when they already exist in the local cache.",
     )
+    extract_parser.add_argument(
+        "--include-geometry-derived",
+        action="store_true",
+        help="Include optional geometry-derived features computed from eGeMAPS formants.",
+    )
 
     args = parser.parse_args()
     _configure_logging(args.log_level)
@@ -54,6 +59,7 @@ def main() -> None:
             limit=args.limit,
             force_download=args.force_download,
             user_id=args.user_id,
+            include_geometry_derived=args.include_geometry_derived,
         )
         LOGGER.info("Extract finished: recordings=%s audit=%s", recordings_path, audit_path)
         print(f"Wrote recordings parquet: {recordings_path}")

@@ -28,6 +28,9 @@ class _FakeGateway:
 
 
 class _FakeExtractor:
+    def __init__(self, include_geometry_derived: bool = False) -> None:
+        self._include_geometry_derived = include_geometry_derived
+
     @property
     def extraction_metadata(self) -> dict[str, object]:
         return {
@@ -41,6 +44,7 @@ class _FakeExtractor:
             "opensmileResampleEnabled": True,
             "opensmileChannels": 0,
             "opensmileMixdownEnabled": False,
+            "opensmileGeometryDerivedEnabled": self._include_geometry_derived,
         }
 
     def extract_file(self, _: Path) -> dict[str, object]:

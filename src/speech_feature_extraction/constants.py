@@ -9,6 +9,7 @@ APPWRITE_AUDIO_BUCKET_ID = "audio"
 IN_SCOPE_TASK_TYPES = {"vowel", "prosody"}
 OPENSMILE_EGEMAPS_PREFIX = "egemaps_"
 OPENSMILE_EGEMAPS_EXPECTED_FEATURE_COUNT = 88
+OPENSMILE_GEOMETRY_DERIVED_PREFIX = "egemaps_geom_"
 
 RECORDINGS_PARQUET = "voice_features_v3_recordings.parquet"
 AUDIT_PARQUET = "voice_features_v3_audit.parquet"

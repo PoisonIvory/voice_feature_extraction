@@ -42,14 +42,21 @@ def run_extract(
     limit: int | None = None,
     force_download: bool = False,
     user_id: str | None = None,
+    include_geometry_derived: bool = False,
 ) -> tuple[Path, Path]:
-    LOGGER.info("Extract run started (limit=%s force_download=%s user_id=%s)", limit, force_download, user_id)
+    LOGGER.info(
+        "Extract run started (limit=%s force_download=%s user_id=%s include_geometry_derived=%s)",
+        limit,
+        force_download,
+        user_id,
+        include_geometry_derived,
+    )
     gateway = AppwriteGateway(settings)
     manifest_rows = _load_manifest_rows(gateway)
     if user_id:
         manifest_rows = [row for row in manifest_rows if row.get("userId") == user_id]
         LOGGER.info("Filtered to user_id=%s: %d rows", user_id, len(manifest_rows))
-    extractor = OpenSmileEgemapsExtractor()
+    extractor = OpenSmileEgemapsExtractor(include_geometry_derived=include_geometry_derived)
     recordings_existing = read_rows_parquet(settings.processed_dir / RECORDINGS_PARQUET)
     recording_rows: list[dict[str, Any]] = []
     audit_rows_by_recording_id = {row["recordingId"]: dict(row) for row in manifest_rows}
