@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voice-feature-extraction"
+version = "0.1.0"
+description = "Reproducible Appwrite speech recording ingestion and openSMILE eGeMAPSv02 feature extraction."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "appwrite",
+  "opensmile",
+  "pandas",
+  "pyarrow",
+  "python-dotenv",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+]
+
+[project.scripts]
+extract-speech-features = "speech_feature_extraction.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
