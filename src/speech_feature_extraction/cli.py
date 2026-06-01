@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import logging
 
 from speech_feature_extraction.config import load_settings
 from speech_feature_extraction.pipeline import run_audit, run_extract
+
+LOGGER = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -14,6 +17,12 @@ def main() -> None:
         description="Audit Appwrite WAV recordings and extract openSMILE eGeMAPSv02 features.",
     )
     parser.add_argument("--env-file", help="Path to a dotenv file. Defaults to .env.")
+    parser.add_argument(
+        "--log-level",
+        default="INFO",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help="Console log level. Defaults to INFO.",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("audit", help="List Appwrite WAVs and write the audit parquet.")
@@ -27,10 +36,13 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+    _configure_logging(args.log_level)
+    LOGGER.info("Starting command=%s", args.command)
     settings = load_settings(args.env_file)
 
     if args.command == "audit":
         audit_path = run_audit(settings)
+        LOGGER.info("Audit finished: %s", audit_path)
         print(f"Wrote audit parquet: {audit_path}")
         return
 
@@ -40,8 +52,16 @@ def main() -> None:
             limit=args.limit,
             force_download=args.force_download,
         )
+        LOGGER.info("Extract finished: recordings=%s audit=%s", recordings_path, audit_path)
         print(f"Wrote recordings parquet: {recordings_path}")
         print(f"Wrote audit parquet: {audit_path}")
         return
 
     parser.error(f"Unknown command: {args.command}")
+
+
+def _configure_logging(log_level: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, log_level, logging.INFO),
+        format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    )

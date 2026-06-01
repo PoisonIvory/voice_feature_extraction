@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Any
 
 from speech_feature_extraction.config import Settings
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AppwriteGateway:
@@ -31,13 +34,16 @@ class AppwriteGateway:
         limit = 100
 
         while True:
+            LOGGER.debug("Listing Appwrite storage files (offset=%d limit=%d)", offset, limit)
             response = self._storage.list_files(
                 bucket_id=self._settings.appwrite_audio_bucket_id,
                 queries=[Query.limit(limit), Query.offset(offset)],
             )
             batch = response.get("files", [])
             files.extend(batch)
+            LOGGER.debug("Fetched storage file batch size=%d total=%d", len(batch), len(files))
             if len(batch) < limit:
+                LOGGER.info("Finished listing storage files: %d", len(files))
                 return files
             offset += limit
 
@@ -49,6 +55,7 @@ class AppwriteGateway:
         limit = 100
 
         while True:
+            LOGGER.debug("Listing Appwrite voice recordings (offset=%d limit=%d)", offset, limit)
             response = self._databases.list_documents(
                 database_id=self._settings.appwrite_database_id,
                 collection_id=self._settings.appwrite_voice_recordings_collection_id,
@@ -56,11 +63,14 @@ class AppwriteGateway:
             )
             batch = response.get("documents", [])
             documents.extend(batch)
+            LOGGER.debug("Fetched voice recording batch size=%d total=%d", len(batch), len(documents))
             if len(batch) < limit:
+                LOGGER.info("Finished listing voice recordings: %d", len(documents))
                 return documents
             offset += limit
 
     def download_audio_file(self, file_id: str, destination: Path) -> Path:
+        LOGGER.debug("Downloading Appwrite audio file_id=%s", file_id)
         destination.parent.mkdir(parents=True, exist_ok=True)
         content = self._storage.get_file_download(
             bucket_id=self._settings.appwrite_audio_bucket_id,
@@ -73,4 +83,5 @@ class AppwriteGateway:
             data = getattr(content, "content", b"")
 
         destination.write_bytes(data)
+        LOGGER.debug("Downloaded %d bytes to %s", len(data), destination)
         return destination
