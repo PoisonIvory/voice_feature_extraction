@@ -14,6 +14,8 @@ from array import array
 from pathlib import Path
 from typing import Any
 
+from speech_feature_extraction.constants import AUDIO_QC_THRESHOLDS
+
 
 def sha256_file(path: Path) -> str:
     """Compute SHA256 hash of a file for lineage tracking."""
@@ -46,6 +48,18 @@ def inspect_wav(path: Path) -> dict[str, Any]:
             "qc_audio_readable": False,
             "qc_failure_reason": f"wav_read_error: {error}",
             "qc_warning_codes": ["audio_unreadable"],
+        }
+
+    min_sample_rate_hz = AUDIO_QC_THRESHOLDS["min_sample_rate_hz"]
+    if sample_rate < min_sample_rate_hz:
+        return {
+            "qc_audio_readable": False,
+            "qc_sample_rate_hz": sample_rate,
+            "qc_channel_count": channel_count,
+            "qc_sample_width_bytes": sample_width,
+            "qc_duration_sec": duration_sec,
+            "qc_failure_reason": f"sample_rate_too_low:{sample_rate}<{min_sample_rate_hz}",
+            "qc_warning_codes": ["sample_rate_too_low"],
         }
 
     clipping_detected, clipping_ratio = _detect_clipping_with_ratio(frames, sample_width)

@@ -25,3 +25,19 @@ def test_inspect_wav_reads_basic_metadata(tmp_path: Path) -> None:
     assert qc["qc_sample_rate_hz"] == 16000
     assert qc["qc_channel_count"] == 1
     assert qc["qc_duration_sec"] == 1
+
+
+def test_inspect_wav_rejects_low_sample_rate(tmp_path: Path) -> None:
+    path = tmp_path / "sample_8k.wav"
+    with wave.open(str(path), "wb") as wav:
+        wav.setnchannels(1)
+        wav.setsampwidth(2)
+        wav.setframerate(8000)
+        wav.writeframes(b"\x00\x00" * 8000)
+
+    qc = inspect_wav(path)
+
+    assert qc["qc_audio_readable"] is False
+    assert qc["qc_sample_rate_hz"] == 8000
+    assert qc["qc_failure_reason"] == "sample_rate_too_low:8000<16000"
+    assert "sample_rate_too_low" in qc["qc_warning_codes"]
