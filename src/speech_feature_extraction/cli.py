@@ -25,9 +25,11 @@ def main() -> None:
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("audit", help="List Appwrite WAVs and write the audit parquet.")
+    audit_parser = subparsers.add_parser("audit", help="List Appwrite WAVs and write the audit parquet.")
+    audit_parser.add_argument("--user-id", help="Filter to a single user ID.")
 
     extract_parser = subparsers.add_parser("extract", help="Download in-scope WAVs and extract features.")
+    extract_parser.add_argument("--user-id", help="Filter to a single user ID.")
     extract_parser.add_argument("--limit", type=int, help="Maximum number of pending recordings to process.")
     extract_parser.add_argument(
         "--force-download",
@@ -41,7 +43,7 @@ def main() -> None:
     settings = load_settings(args.env_file)
 
     if args.command == "audit":
-        audit_path = run_audit(settings)
+        audit_path = run_audit(settings, user_id=args.user_id)
         LOGGER.info("Audit finished: %s", audit_path)
         print(f"Wrote audit parquet: {audit_path}")
         return
@@ -51,6 +53,7 @@ def main() -> None:
             settings,
             limit=args.limit,
             force_download=args.force_download,
+            user_id=args.user_id,
         )
         LOGGER.info("Extract finished: recordings=%s audit=%s", recordings_path, audit_path)
         print(f"Wrote recordings parquet: {recordings_path}")

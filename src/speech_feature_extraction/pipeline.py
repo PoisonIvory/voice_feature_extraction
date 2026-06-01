@@ -18,10 +18,13 @@ from speech_feature_extraction.parquet import read_rows_parquet, write_rows_parq
 LOGGER = logging.getLogger(__name__)
 
 
-def run_audit(settings: Settings) -> Path:
-    LOGGER.info("Audit run started")
+def run_audit(settings: Settings, user_id: str | None = None) -> Path:
+    LOGGER.info("Audit run started (user_id=%s)", user_id)
     gateway = AppwriteGateway(settings)
     manifest_rows = _load_manifest_rows(gateway)
+    if user_id:
+        manifest_rows = [row for row in manifest_rows if row.get("userId") == user_id]
+        LOGGER.info("Filtered to user_id=%s: %d rows", user_id, len(manifest_rows))
     LOGGER.info("Audit manifest rows: %d", len(manifest_rows))
     audit_path = settings.processed_dir / AUDIT_PARQUET
     output = write_rows_parquet(manifest_rows, audit_path)
@@ -29,10 +32,18 @@ def run_audit(settings: Settings) -> Path:
     return output
 
 
-def run_extract(settings: Settings, limit: int | None = None, force_download: bool = False) -> tuple[Path, Path]:
-    LOGGER.info("Extract run started (limit=%s force_download=%s)", limit, force_download)
+def run_extract(
+    settings: Settings,
+    limit: int | None = None,
+    force_download: bool = False,
+    user_id: str | None = None,
+) -> tuple[Path, Path]:
+    LOGGER.info("Extract run started (limit=%s force_download=%s user_id=%s)", limit, force_download, user_id)
     gateway = AppwriteGateway(settings)
     manifest_rows = _load_manifest_rows(gateway)
+    if user_id:
+        manifest_rows = [row for row in manifest_rows if row.get("userId") == user_id]
+        LOGGER.info("Filtered to user_id=%s: %d rows", user_id, len(manifest_rows))
     extractor = OpenSmileEgemapsExtractor()
     recordings_existing = read_rows_parquet(settings.processed_dir / RECORDINGS_PARQUET)
     recording_rows: list[dict[str, Any]] = []
