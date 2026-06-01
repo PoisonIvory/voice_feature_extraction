@@ -8,16 +8,31 @@ from typing import Any
 
 from speech_feature_extraction.constants import IN_SCOPE_TASK_TYPES
 
-FILENAME_PATTERN = re.compile(
+FILENAME_PATTERN_NEW = re.compile(
     r"^(?P<user_id>[^_]+)_(?P<task_type>[^_]+)_(?P<timestamp_ms>\d+)\.wav$",
+    re.IGNORECASE,
+)
+FILENAME_PATTERN_OLD = re.compile(
+    r"^(?P<task_type>vowel|prosody)_[^_]+_(?P<timestamp_ms>\d+)\.wav$",
     re.IGNORECASE,
 )
 USER_PERMISSION_PATTERN = re.compile(r'user:([^")]+)')
 
 
 def parse_filename_metadata(filename: str) -> dict[str, Any]:
-    match = FILENAME_PATTERN.match(filename)
-    if not match:
+    old_match = FILENAME_PATTERN_OLD.match(filename)
+    if old_match:
+        timestamp_ms = int(old_match.group("timestamp_ms"))
+        recorded_at = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
+        return {
+            "filenameUserId": None,
+            "filenameTaskType": old_match.group("task_type"),
+            "filenameRecordedAt": recorded_at.isoformat(),
+            "filenameRecordedDate": recorded_at.date().isoformat(),
+        }
+
+    new_match = FILENAME_PATTERN_NEW.match(filename)
+    if not new_match:
         return {
             "filenameUserId": None,
             "filenameTaskType": None,
@@ -25,11 +40,11 @@ def parse_filename_metadata(filename: str) -> dict[str, Any]:
             "filenameRecordedDate": None,
         }
 
-    timestamp_ms = int(match.group("timestamp_ms"))
+    timestamp_ms = int(new_match.group("timestamp_ms"))
     recorded_at = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
     return {
-        "filenameUserId": match.group("user_id"),
-        "filenameTaskType": match.group("task_type"),
+        "filenameUserId": new_match.group("user_id"),
+        "filenameTaskType": new_match.group("task_type"),
         "filenameRecordedAt": recorded_at.isoformat(),
         "filenameRecordedDate": recorded_at.date().isoformat(),
     }
