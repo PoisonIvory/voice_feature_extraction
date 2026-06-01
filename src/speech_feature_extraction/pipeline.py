@@ -12,7 +12,7 @@ from speech_feature_extraction.config import Settings
 from speech_feature_extraction.constants import AUDIT_PARQUET, EXTRACTOR_VERSION, RECORDINGS_PARQUET
 from speech_feature_extraction.metadata import build_manifest_rows
 from speech_feature_extraction.opensmile_egemaps import OpenSmileEgemapsExtractor
-from speech_feature_extraction.parquet import write_rows_parquet
+from speech_feature_extraction.parquet import read_rows_parquet, write_rows_parquet
 
 
 def run_audit(settings: Settings) -> Path:
@@ -26,39 +26,41 @@ def run_extract(settings: Settings, limit: int | None = None, force_download: bo
     gateway = AppwriteGateway(settings)
     manifest_rows = _load_manifest_rows(gateway)
     extractor = OpenSmileEgemapsExtractor()
-
+    recordings_existing = read_rows_parquet(settings.processed_dir / RECORDINGS_PARQUET)
     recording_rows: list[dict[str, Any]] = []
-    audit_rows: list[dict[str, Any]] = []
+    audit_rows_by_recording_id = {row["recordingId"]: dict(row) for row in manifest_rows}
     candidates = [row for row in manifest_rows if row["pipelineStatus"] == "pending"]
     if limit is not None:
         candidates = candidates[:limit]
 
     for manifest_row in candidates:
         recording_id = manifest_row["recordingId"]
+        extraction_timestamp = datetime.now(tz=timezone.utc).isoformat()
         audit_row = dict(manifest_row)
+        audit_row.update(_build_lineage(extractor, extraction_timestamp))
+        stage = "download_audio"
         try:
             wav_path = _cached_audio_path(settings.raw_audio_dir, recording_id)
             if force_download or not wav_path.exists():
+                stage = "download_audio"
                 gateway.download_audio_file(recording_id, wav_path)
 
+            stage = "audio_hash"
             audio_hash = sha256_file(wav_path)
+            stage = "wav_qc"
             qc = inspect_wav(wav_path)
             if not qc["qc_audio_readable"]:
                 raise ValueError(qc["qc_failure_reason"])
 
+            stage = "opensmile_extract"
             features = extractor.extract_file(wav_path)
-            extraction_timestamp = datetime.now(tz=timezone.utc).isoformat()
+            merged_qc = _merge_qc(manifest_row, qc)
             recording_rows.append(
                 {
                     **manifest_row,
                     "audioHash": audio_hash,
-                    "extractorVersion": EXTRACTOR_VERSION,
-                    "extractionTimestamp": extraction_timestamp,
-                    "featureSet": "opensmile.FeatureSet.eGeMAPSv02",
-                    "featureLevel": "opensmile.FeatureLevel.Functionals",
-                    "libraryName": "opensmile",
-                    "libraryVersion": extractor.library_version,
-                    **_merge_qc(manifest_row, qc),
+                    **_build_lineage(extractor, extraction_timestamp),
+                    **merged_qc,
                     **features,
                     "pipelineStatus": "completed",
                     "skipReason": None,
@@ -67,32 +69,30 @@ def run_extract(settings: Settings, limit: int | None = None, force_download: bo
             audit_row.update(
                 {
                     "audioHash": audio_hash,
-                    "extractorVersion": EXTRACTOR_VERSION,
-                    "extractionTimestamp": extraction_timestamp,
-                    "libraryName": "opensmile",
-                    "libraryVersion": extractor.library_version,
                     "pipelineStatus": "completed",
-                    **_merge_qc(manifest_row, qc),
+                    **merged_qc,
                     "qc_opensmile_egemaps_success": True,
                     "qc_feature_count_egemaps": features["qc_feature_count_egemaps"],
+                    "qc_feature_count_egemaps_expected": features["qc_feature_count_egemaps_expected"],
+                    "qc_failure_stage": None,
                     "qc_failure_reason": None,
                 }
             )
         except Exception as error:
             audit_row.update(
                 {
-                    "extractorVersion": EXTRACTOR_VERSION,
-                    "extractionTimestamp": datetime.now(tz=timezone.utc).isoformat(),
                     "pipelineStatus": "failed",
                     "qc_opensmile_egemaps_success": False,
+                    "qc_failure_stage": stage,
                     "qc_failure_reason": str(error),
                 }
             )
-        audit_rows.append(audit_row)
+        audit_rows_by_recording_id[recording_id] = audit_row
 
-    skipped_rows = [row for row in manifest_rows if row["pipelineStatus"] != "pending"]
-    audit_path = write_rows_parquet(skipped_rows + audit_rows, settings.processed_dir / AUDIT_PARQUET)
-    recordings_path = write_rows_parquet(recording_rows, settings.processed_dir / RECORDINGS_PARQUET)
+    merged_recording_rows = _upsert_recording_rows(recordings_existing, recording_rows)
+    audit_rows = [audit_rows_by_recording_id[key] for key in sorted(audit_rows_by_recording_id, key=str)]
+    audit_path = write_rows_parquet(audit_rows, settings.processed_dir / AUDIT_PARQUET)
+    recordings_path = write_rows_parquet(merged_recording_rows, settings.processed_dir / RECORDINGS_PARQUET)
     return recordings_path, audit_path
 
 
@@ -113,3 +113,31 @@ def _merge_qc(manifest_row: dict[str, Any], qc: dict[str, Any]) -> dict[str, Any
         **qc,
         "qc_warning_codes": sorted(set(manifest_warnings + qc_warnings)),
     }
+
+
+def _build_lineage(extractor: OpenSmileEgemapsExtractor, extraction_timestamp: str) -> dict[str, Any]:
+    return {
+        "extractorVersion": EXTRACTOR_VERSION,
+        "extractionTimestamp": extraction_timestamp,
+        **extractor.extraction_metadata,
+    }
+
+
+def _upsert_recording_rows(
+    existing_rows: list[dict[str, Any]],
+    new_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows_by_recording_id: dict[str, dict[str, Any]] = {}
+    for row in existing_rows:
+        recording_id = row.get("recordingId")
+        if recording_id is None:
+            continue
+        rows_by_recording_id[str(recording_id)] = row
+
+    for row in new_rows:
+        recording_id = row.get("recordingId")
+        if recording_id is None:
+            continue
+        rows_by_recording_id[str(recording_id)] = row
+
+    return [rows_by_recording_id[key] for key in sorted(rows_by_recording_id)]

@@ -1,6 +1,6 @@
 """Shared pipeline constants."""
 
-EXTRACTOR_VERSION = "v3.0-opensmile-praat"
+EXTRACTOR_VERSION = "v3.1-opensmile-egemaps"
 
 APPWRITE_DATABASE_ID = "period_tracker_db"
 APPWRITE_VOICE_RECORDINGS_COLLECTION_ID = "voice_recordings"

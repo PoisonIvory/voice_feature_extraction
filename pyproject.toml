@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
   "appwrite",
-  "opensmile",
+  "opensmile>=2.5,<3",
   "pandas",
   "pyarrow",
   "python-dotenv",

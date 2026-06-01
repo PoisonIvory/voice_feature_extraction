@@ -19,9 +19,19 @@ class OpenSmileEgemapsExtractor:
         import opensmile
 
         self._opensmile = opensmile
+        self._feature_set_name = "opensmile.FeatureSet.eGeMAPSv02"
+        self._feature_level_name = "opensmile.FeatureLevel.Functionals"
+        self._sampling_rate_hz = 16000
+        self._resample = True
+        self._channels = 0
+        self._mixdown = False
         self._smile = opensmile.Smile(
             feature_set=opensmile.FeatureSet.eGeMAPSv02,
             feature_level=opensmile.FeatureLevel.Functionals,
+            sampling_rate=self._sampling_rate_hz,
+            resample=self._resample,
+            channels=self._channels,
+            mixdown=self._mixdown,
         )
 
     @property
@@ -35,12 +45,43 @@ class OpenSmileEgemapsExtractor:
     def feature_names(self) -> list[str]:
         return list(self._smile.feature_names)
 
+    @property
+    def extraction_metadata(self) -> dict[str, Any]:
+        return {
+            "featureSet": self._feature_set_name,
+            "featureLevel": self._feature_level_name,
+            "libraryName": "opensmile",
+            "libraryVersion": self.library_version,
+            "opensmileConfigName": self._smile.config_name,
+            "opensmileConfigFile": Path(self._smile.config_path).name,
+            "opensmileSamplingRateHz": self._sampling_rate_hz,
+            "opensmileResampleEnabled": self._resample,
+            "opensmileChannels": self._channels,
+            "opensmileMixdownEnabled": self._mixdown,
+        }
+
     def extract_file(self, path: Path) -> dict[str, Any]:
         frame = self._smile.process_file(str(path))
         if frame.empty:
             raise ValueError(f"openSMILE returned no rows for {path}")
+        if len(frame) != 1:
+            raise ValueError(f"openSMILE returned {len(frame)} rows for {path}; expected 1 row")
 
-        features = frame.iloc[0].to_dict()
+        row = frame.iloc[0]
+        if row.isna().any():
+            raise ValueError(f"openSMILE returned NaN features for {path}")
+
+        expected_names = self.feature_names
+        returned_names = list(row.index)
+        if returned_names != expected_names:
+            raise ValueError(f"openSMILE feature schema mismatch for {path}")
+        if len(expected_names) != OPENSMILE_EGEMAPS_EXPECTED_FEATURE_COUNT:
+            raise ValueError(
+                f"openSMILE runtime feature count {len(expected_names)} does not match expected "
+                f"{OPENSMILE_EGEMAPS_EXPECTED_FEATURE_COUNT}"
+            )
+
+        features = row.to_dict()
         prefixed = {
             f"{OPENSMILE_EGEMAPS_PREFIX}{name}": value
             for name, value in features.items()

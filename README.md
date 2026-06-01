@@ -8,6 +8,7 @@ The first canonical pass intentionally keeps the feature surface small:
 - Appwrite `voice_recordings` is left-joined as preferred metadata.
 - Only `vowel` and `prosody` recordings are in scope.
 - The canonical extractor is `opensmile.FeatureSet.eGeMAPSv02` at `opensmile.FeatureLevel.Functionals`.
+- Extraction uses a standardized openSMILE runtime policy (`sampling_rate=16000`, `resample=True`).
 - `ComParE_2016` is deferred to a later optional discovery artifact.
 - Parquet files are the local source of truth; CSV/XLSX exports can be generated later from Parquet.
 
@@ -42,12 +43,27 @@ Process a small smoke-test batch:
 extract-speech-features extract --limit 2
 ```
 
+`--limit` now runs a partial extraction without deleting prior completed recordings in the canonical parquet.
+
 Generated artifacts are written under `data/processed/` and local WAV cache files under `data/raw_audio/`. These paths are ignored by git.
 
 ## Outputs
 
 - `data/processed/voice_features_v3_recordings.parquet`: one row per completed recording with metadata, lineage, QC, and eGeMAPSv02 features prefixed with `egemaps_`.
 - `data/processed/voice_features_v3_audit.parquet`: skipped files, failures, metadata warnings, and extraction status.
+
+Each completed extraction row records lineage fields including:
+- extractor version and extraction timestamp
+- openSMILE package version
+- feature set and level
+- openSMILE config file identity
+- sample-rate and resampling settings
+- SHA256 of the processed audio file
+
+## Reproducibility Notes
+
+- The project pins `opensmile` to `<3` and `>=2.5` to avoid accidental cross-major upgrades.
+- If the openSMILE runtime schema changes, extraction now fails instead of silently writing mismatched feature columns.
 
 ## Development
 
