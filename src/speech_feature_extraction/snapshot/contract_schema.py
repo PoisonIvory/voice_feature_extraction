@@ -17,30 +17,24 @@ MANIFEST_VERSION = "1.0"
 SUPPORTED_MANIFEST_VERSIONS = {MANIFEST_VERSION}
 
 DATASET_NAME = "speech-features"
-DATASET_VERSION = "v3"
+DATASET_VERSION = "v4"
 MANIFEST_FILENAME = "manifest.json"
 LATEST_POINTER_FILENAME = "latest.json"
 
-DEFAULT_RECORDINGS_FILENAME = "voice_features_v3_recordings.parquet"
-DEFAULT_AUDIT_FILENAME = "voice_features_v3_audit.parquet"
+DEFAULT_DAILY_FILENAME = "voice_features_v4_daily.parquet"
+DEFAULT_AUDIT_FILENAME = "voice_features_v4_audit.parquet"
 
 REQUIRED_CORE_COLUMNS = (
-    "recordingId",
-    "recordedDate",
-    "taskType",
-    "pipelineStatus",
-    "extractorVersion",
-    "featureSet",
-    "featureLevel",
-    "audioHash",
-    "qc_task_qc_passed",
-    "qc_warning_codes",
-    "qc_opensmile_egemaps_success",
-    "qc_feature_count_egemaps",
-    "qc_feature_count_egemaps_expected",
+    "userId",
+    "dayUtc",
+    "vowel_recording_count",
+    "prosody_recording_count",
+    "has_vowel",
+    "has_prosody",
+    "is_day_complete",
 )
-REQUIRED_FEATURE_PREFIXES = ("egemaps_",)
-REQUIRED_FEATURE_COUNT_BY_PREFIX = {"egemaps_": 88}
+REQUIRED_FEATURE_PREFIXES = ("vowel_egemaps_", "prosody_egemaps_")
+REQUIRED_FEATURE_COUNT_BY_PREFIX = {"vowel_egemaps_": 88, "prosody_egemaps_": 88}
 
 
 def validate_required_columns(

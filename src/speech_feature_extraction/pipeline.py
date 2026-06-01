@@ -14,7 +14,13 @@ from typing import Any
 from speech_feature_extraction.appwrite_gateway import AppwriteGateway
 from speech_feature_extraction.audio_qc import inspect_wav, sha256_file
 from speech_feature_extraction.config import Settings
-from speech_feature_extraction.constants import AUDIT_PARQUET, EXTRACTOR_VERSION, RECORDINGS_PARQUET
+from speech_feature_extraction.constants import (
+    AUDIT_PARQUET,
+    DAILY_FEATURES_PARQUET,
+    EXTRACTOR_VERSION,
+    RECORDINGS_STAGING_PARQUET,
+)
+from speech_feature_extraction.daily_aggregation import build_daily_feature_rows
 from speech_feature_extraction.metadata import build_manifest_rows
 from speech_feature_extraction.opensmile_egemaps import OpenSmileEgemapsExtractor
 from speech_feature_extraction.parquet import read_rows_parquet, write_rows_parquet
@@ -50,15 +56,15 @@ def run_extract(
         manifest_rows = [row for row in manifest_rows if row.get("userId") == user_id]
         LOGGER.info("Filtered to user_id=%s: %d rows", user_id, len(manifest_rows))
     extractor = OpenSmileEgemapsExtractor()
-    recordings_existing = read_rows_parquet(settings.processed_dir / RECORDINGS_PARQUET)
+    staging_existing = read_rows_parquet(settings.processed_dir / RECORDINGS_STAGING_PARQUET)
     recording_rows: list[dict[str, Any]] = []
     audit_rows_by_recording_id = {row["recordingId"]: dict(row) for row in manifest_rows}
     candidates = [row for row in manifest_rows if row["pipelineStatus"] == "pending"]
     LOGGER.info(
-        "Manifest loaded: total=%d pending=%d existing_recordings=%d",
+        "Manifest loaded: total=%d pending=%d existing_staging_rows=%d",
         len(manifest_rows),
         len(candidates),
-        len(recordings_existing),
+        len(staging_existing),
     )
     if limit is not None:
         candidates = candidates[:limit]
@@ -174,19 +180,21 @@ def run_extract(
             LOGGER.warning("Failed recording: %s stage=%s error=%s", recording_id, stage, error)
         audit_rows_by_recording_id[recording_id] = audit_row
 
-    merged_recording_rows = _upsert_recording_rows(recordings_existing, recording_rows)
+    merged_recording_rows = _upsert_staging_rows(staging_existing, recording_rows)
+    daily_rows = build_daily_feature_rows(merged_recording_rows)
     audit_rows = [audit_rows_by_recording_id[key] for key in sorted(audit_rows_by_recording_id, key=str)]
     audit_path = write_rows_parquet(audit_rows, settings.processed_dir / AUDIT_PARQUET)
-    recordings_path = write_rows_parquet(merged_recording_rows, settings.processed_dir / RECORDINGS_PARQUET)
+    write_rows_parquet(merged_recording_rows, settings.processed_dir / RECORDINGS_STAGING_PARQUET)
+    daily_path = write_rows_parquet(daily_rows, settings.processed_dir / DAILY_FEATURES_PARQUET)
     LOGGER.info(
-        "Extract run finished: completed=%d qc_failed=%d failed=%d recordings_path=%s audit_path=%s",
+        "Extract run finished: completed=%d qc_failed=%d failed=%d daily_path=%s audit_path=%s",
         sum(1 for row in audit_rows if row.get("pipelineStatus") == "completed"),
         sum(1 for row in audit_rows if row.get("pipelineStatus") == "qc_failed"),
         sum(1 for row in audit_rows if row.get("pipelineStatus") == "failed"),
-        recordings_path,
+        daily_path,
         audit_path,
     )
-    return recordings_path, audit_path
+    return daily_path, audit_path
 
 
 def _load_manifest_rows(gateway: AppwriteGateway) -> list[dict[str, Any]]:
@@ -227,7 +235,7 @@ def _build_lineage(extractor: OpenSmileEgemapsExtractor, extraction_timestamp: s
     }
 
 
-def _upsert_recording_rows(
+def _upsert_staging_rows(
     existing_rows: list[dict[str, Any]],
     new_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:

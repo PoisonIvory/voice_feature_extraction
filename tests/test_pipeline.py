@@ -76,10 +76,17 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
     settings = _settings(tmp_path)
     existing_rows = [
         {"recordingId": "already_done", "audioHash": "existing_hash"},
-        {"recordingId": "to_process", "audioHash": "old_hash"},
+        {
+            "recordingId": "to_process",
+            "userId": "u1",
+            "recordedAt": "2026-06-01T08:00:00+00:00",
+            "taskType": "vowel",
+            "audioHash": "old_hash",
+            "egemaps_feature_a": 1.0,
+        },
     ]
     parquet_store: dict[str, list[dict[str, object]]] = {
-        "voice_features_v3_recordings.parquet": existing_rows
+        "voice_features_v4_recordings_staging.parquet": existing_rows
     }
 
     def _fake_read_rows_parquet(path: Path) -> list[dict[str, object]]:
@@ -90,9 +97,33 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
         return path
 
     manifest_rows = [
-        {"recordingId": "to_process", "pipelineStatus": "pending", "taskType": "vowel", "qc_warning_codes": [], "skipReason": None},
-        {"recordingId": "not_processed_due_to_limit", "pipelineStatus": "pending", "taskType": "prosody", "qc_warning_codes": [], "skipReason": None},
-        {"recordingId": "skipped_row", "pipelineStatus": "skipped", "taskType": None, "qc_warning_codes": ["metadata_missing"], "skipReason": "metadata_error"},
+        {
+            "recordingId": "to_process",
+            "pipelineStatus": "pending",
+            "taskType": "vowel",
+            "userId": "u1",
+            "recordedAt": "2026-06-01T10:00:00+00:00",
+            "qc_warning_codes": [],
+            "skipReason": None,
+        },
+        {
+            "recordingId": "not_processed_due_to_limit",
+            "pipelineStatus": "pending",
+            "taskType": "prosody",
+            "userId": "u1",
+            "recordedAt": "2026-06-01T11:00:00+00:00",
+            "qc_warning_codes": [],
+            "skipReason": None,
+        },
+        {
+            "recordingId": "skipped_row",
+            "pipelineStatus": "skipped",
+            "taskType": None,
+            "userId": "u1",
+            "recordedAt": "2026-06-01T12:00:00+00:00",
+            "qc_warning_codes": ["metadata_missing"],
+            "skipReason": "metadata_error",
+        },
     ]
 
     monkeypatch.setattr("speech_feature_extraction.pipeline.AppwriteGateway", _FakeGateway)
@@ -114,12 +145,22 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
 
     run_extract(settings=settings, limit=1)
 
-    recordings = parquet_store["voice_features_v3_recordings.parquet"]
-    rows_by_id = {row["recordingId"]: row for row in recordings}
+    staging_rows = parquet_store["voice_features_v4_recordings_staging.parquet"]
+    rows_by_id = {row["recordingId"]: row for row in staging_rows}
     assert set(rows_by_id) == {"already_done", "to_process"}
     assert rows_by_id["to_process"]["audioHash"] == "new_hash"
 
-    audit = parquet_store["voice_features_v3_audit.parquet"]
+    daily_rows = parquet_store["voice_features_v4_daily.parquet"]
+    assert len(daily_rows) == 1
+    daily = daily_rows[0]
+    assert daily["userId"] == "u1"
+    assert daily["dayUtc"] == "2026-06-01"
+    assert daily["vowel_egemaps_feature_a"] == 1.23
+    assert daily["prosody_egemaps_feature_a"] is None
+    assert daily["vowel_recording_count"] == 1
+    assert daily["prosody_recording_count"] == 0
+
+    audit = parquet_store["voice_features_v4_audit.parquet"]
     audit_rows_by_id = {row["recordingId"]: row for row in audit}
     assert set(audit_rows_by_id) == {"to_process", "not_processed_due_to_limit", "skipped_row"}
     assert audit_rows_by_id["to_process"]["pipelineStatus"] == "completed"
@@ -141,7 +182,15 @@ def test_run_extract_writes_structured_failure_stage(
         return path
 
     manifest_rows = [
-        {"recordingId": "to_fail", "pipelineStatus": "pending", "taskType": "vowel", "qc_warning_codes": [], "skipReason": None},
+        {
+            "recordingId": "to_fail",
+            "pipelineStatus": "pending",
+            "taskType": "vowel",
+            "userId": "u1",
+            "recordedAt": "2026-06-01T10:00:00+00:00",
+            "qc_warning_codes": [],
+            "skipReason": None,
+        },
     ]
 
     class _FailingExtractor(_FakeExtractor):
@@ -167,7 +216,7 @@ def test_run_extract_writes_structured_failure_stage(
 
     run_extract(settings=settings, limit=1)
 
-    row = parquet_store["voice_features_v3_audit.parquet"][0]
+    row = parquet_store["voice_features_v4_audit.parquet"][0]
     assert row["pipelineStatus"] == "failed"
     assert row["qc_failure_stage"] == "opensmile_extract"
     assert row["featureSet"] == "opensmile.FeatureSet.eGeMAPSv02"

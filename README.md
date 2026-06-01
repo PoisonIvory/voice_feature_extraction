@@ -49,16 +49,17 @@ Process a small smoke-test batch:
 extract-speech-features extract --limit 2
 ```
 
-`--limit` now runs a partial extraction without deleting prior completed recordings in the canonical parquet.
+`--limit` now runs a partial extraction without deleting prior extracted rows in the canonical daily parquet.
 
 Generated artifacts are written under `data/processed/` and local WAV cache files under `data/raw_audio/`. These paths are ignored by git.
 
 ## Outputs
 
-- `data/processed/voice_features_v3_recordings.parquet`: one row per completed recording with metadata, lineage, QC, and eGeMAPSv02 features prefixed with `egemaps_`.
-- `data/processed/voice_features_v3_audit.parquet`: skipped files, failures, metadata warnings, and extraction status.
+- `data/processed/voice_features_v4_daily.parquet`: one row per `userId` and UTC day, with per-task median features in `vowel_egemaps_*` and `prosody_egemaps_*`.
+- `data/processed/voice_features_v4_audit.parquet`: recording-level skips, failures, metadata warnings, and extraction status.
+- `data/processed/voice_features_v4_recordings_staging.parquet`: internal recording-level staging used to rebuild daily medians.
 
-Each completed extraction row records lineage fields including:
+Daily output rows include lineage fields propagated from extraction, including:
 - extractor version and extraction timestamp
 - openSMILE package version
 - feature set and level
@@ -70,9 +71,9 @@ Each completed extraction row records lineage fields including:
 
 Snapshot publishing is a separate workflow from extraction and writes immutable bundles under:
 
-- `exports/snapshots/speech-features/v3/<snapshot>/voice_features_v3_recordings.parquet`
-- `exports/snapshots/speech-features/v3/<snapshot>/voice_features_v3_audit.parquet`
-- `exports/snapshots/speech-features/v3/<snapshot>/manifest.json`
+- `exports/snapshots/speech-features/v4/<snapshot>/voice_features_v4_daily.parquet`
+- `exports/snapshots/speech-features/v4/<snapshot>/voice_features_v4_audit.parquet`
+- `exports/snapshots/speech-features/v4/<snapshot>/manifest.json`
 
 `manifest.json` includes:
 

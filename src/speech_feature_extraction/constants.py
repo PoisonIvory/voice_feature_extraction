@@ -1,6 +1,6 @@
 """Shared pipeline constants."""
 
-EXTRACTOR_VERSION = "v3.2-opensmile-egemaps-taskqc"
+EXTRACTOR_VERSION = "v4.0-daily-task-separated-median"
 
 APPWRITE_DATABASE_ID = "period_tracker_db"
 APPWRITE_VOICE_RECORDINGS_COLLECTION_ID = "voice_recordings"
@@ -10,8 +10,9 @@ IN_SCOPE_TASK_TYPES = {"vowel", "prosody"}
 OPENSMILE_EGEMAPS_PREFIX = "egemaps_"
 OPENSMILE_EGEMAPS_EXPECTED_FEATURE_COUNT = 88
 
-RECORDINGS_PARQUET = "voice_features_v3_recordings.parquet"
-AUDIT_PARQUET = "voice_features_v3_audit.parquet"
+DAILY_FEATURES_PARQUET = "voice_features_v4_daily.parquet"
+RECORDINGS_STAGING_PARQUET = "voice_features_v4_recordings_staging.parquet"
+AUDIT_PARQUET = "voice_features_v4_audit.parquet"
 
 # Task-specific quality control thresholds
 # Based on ASHA protocols, MDVP reference values, and eGeMAPS documentation.

@@ -13,7 +13,7 @@ The goal of this repository is strictly data preparation: transform raw Appwrite
 The project should support:
 
 - A clear explanation of the extraction pipeline and why it follows established methodology.
-- Reproducible generation of recording-level feature and audit parquet artifacts.
+- Reproducible generation of daily task-separated feature and recording-level audit parquet artifacts.
 - Transparent failure and skip reporting for QA and downstream consumers.
 
 ## Methodology Story
@@ -31,7 +31,7 @@ The extraction pipeline should avoid custom acoustic biomarker code and instead 
 
 - The pipeline processes only confidently identified `vowel` and `prosody` WAV recordings.
 - Every included recording records the same `extractorVersion`, library versions, feature set names, and audio SHA256 hash.
-- The output includes one canonical recording-level Parquet file and one audit Parquet file.
+- The output includes one canonical daily Parquet file (one row per user/day with task-separated features) and one recording-level audit Parquet file.
 - CSV/XLSX review exports, if created, are generated from Parquet rather than directly from Appwrite.
 - Missing metadata, task disagreements, failed downloads, failed extraction, and out-of-scope recordings are recorded in the audit output instead of being silently dropped.
 - The extraction run is reproducible and auditable without requiring any analysis or visualization step.
@@ -42,5 +42,5 @@ The extraction pipeline should avoid custom acoustic biomarker code and instead 
 - Extracting `ComParE_2016` in the canonical first-pass recording-level dataset.
 - Reusing old Modal/custom biomarker outputs as analysis features.
 - Building a production service or mobile-app feature.
-- Daily-level aggregation, cycle-phase joins, Oura joins, plotting, statistical analysis, and research conclusions.
+- Cycle-phase joins, Oura joins, plotting, statistical analysis, and research conclusions.
 

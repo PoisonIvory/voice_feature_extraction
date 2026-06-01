@@ -6,28 +6,24 @@ from speech_feature_extraction.snapshot.contract_schema import (
 )
 
 
-def test_extraction_shaped_recordings_row_satisfies_contract() -> None:
-    egemaps_count = REQUIRED_FEATURE_COUNT_BY_PREFIX["egemaps_"]
+def test_extraction_shaped_daily_row_satisfies_contract() -> None:
+    vowel_count = REQUIRED_FEATURE_COUNT_BY_PREFIX["vowel_egemaps_"]
+    prosody_count = REQUIRED_FEATURE_COUNT_BY_PREFIX["prosody_egemaps_"]
     row: dict[str, object] = {
-        "recordingId": "r1",
-        "recordedDate": "2026-06-01",
-        "taskType": "vowel",
-        "pipelineStatus": "completed",
-        "extractorVersion": "v3.2-opensmile-egemaps-taskqc",
-        "extractionTimestamp": "2026-06-01T15:16:12+00:00",
-        "featureSet": "opensmile.FeatureSet.eGeMAPSv02",
-        "featureLevel": "opensmile.FeatureLevel.Functionals",
-        "libraryName": "opensmile",
+        "userId": "u1",
+        "dayUtc": "2026-06-01",
+        "vowel_recording_count": 2,
+        "prosody_recording_count": 1,
+        "has_vowel": True,
+        "has_prosody": True,
+        "is_day_complete": True,
+        "extractorVersion": "v4.0-daily-task-separated-median",
         "libraryVersion": "2.5.1",
-        "audioHash": "sha256:abc",
-        "qc_task_qc_passed": True,
-        "qc_warning_codes": [],
-        "qc_opensmile_egemaps_success": True,
-        "qc_feature_count_egemaps": egemaps_count,
-        "qc_feature_count_egemaps_expected": egemaps_count,
     }
-    for index in range(egemaps_count):
-        row[f"egemaps_feature_{index}"] = float(index)
+    for index in range(vowel_count):
+        row[f"vowel_egemaps_feature_{index}"] = float(index)
+    for index in range(prosody_count):
+        row[f"prosody_egemaps_feature_{index}"] = float(index)
 
     frame = pd.DataFrame([row])
     validate_required_columns(frame)

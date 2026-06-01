@@ -10,7 +10,7 @@ from speech_feature_extraction.config import load_settings, load_snapshot_publis
 from speech_feature_extraction.pipeline import run_audit, run_extract
 from speech_feature_extraction.snapshot.contract_schema import (
     DEFAULT_AUDIT_FILENAME,
-    DEFAULT_RECORDINGS_FILENAME,
+    DEFAULT_DAILY_FILENAME,
 )
 from speech_feature_extraction.snapshot.publisher import publish_snapshot_bundle
 
@@ -34,7 +34,10 @@ def main() -> None:
     audit_parser = subparsers.add_parser("audit", help="List Appwrite WAVs and write the audit parquet.")
     audit_parser.add_argument("--user-id", help="Filter to a single user ID.")
 
-    extract_parser = subparsers.add_parser("extract", help="Download in-scope WAVs and extract features.")
+    extract_parser = subparsers.add_parser(
+        "extract",
+        help="Download in-scope WAVs, extract features, and build daily task-separated output.",
+    )
     extract_parser.add_argument("--user-id", help="Filter to a single user ID.")
     extract_parser.add_argument("--limit", type=int, help="Maximum number of pending recordings to process.")
     extract_parser.add_argument(
@@ -48,8 +51,8 @@ def main() -> None:
         help="Build snapshot manifest and publish immutable artifact bundle.",
     )
     publish_parser.add_argument(
-        "--recordings-path",
-        help="Path to recordings parquet. Defaults to data/processed canonical output.",
+        "--daily-path",
+        help="Path to daily canonical parquet. Defaults to data/processed canonical output.",
     )
     publish_parser.add_argument(
         "--audit-path",
@@ -91,23 +94,23 @@ def main() -> None:
 
     if args.command == "extract":
         settings = load_settings(args.env_file)
-        recordings_path, audit_path = run_extract(
+        daily_path, audit_path = run_extract(
             settings,
             limit=args.limit,
             force_download=args.force_download,
             user_id=args.user_id,
         )
-        LOGGER.info("Extract finished: recordings=%s audit=%s", recordings_path, audit_path)
-        print(f"Wrote recordings parquet: {recordings_path}")
+        LOGGER.info("Extract finished: daily=%s audit=%s", daily_path, audit_path)
+        print(f"Wrote daily parquet: {daily_path}")
         print(f"Wrote audit parquet: {audit_path}")
         return
 
     if args.command == "publish-snapshot":
         snapshot_settings = load_snapshot_publish_settings(args.env_file)
-        recordings_path = (
-            Path(args.recordings_path)
-            if args.recordings_path
-            else snapshot_settings.processed_dir / DEFAULT_RECORDINGS_FILENAME
+        daily_path = (
+            Path(args.daily_path)
+            if args.daily_path
+            else snapshot_settings.processed_dir / DEFAULT_DAILY_FILENAME
         )
         audit_path = (
             Path(args.audit_path) if args.audit_path else snapshot_settings.processed_dir / DEFAULT_AUDIT_FILENAME
@@ -121,7 +124,7 @@ def main() -> None:
         opensmile_version = args.opensmile_version or snapshot_settings.snapshot_opensmile_version
         source_commit = args.source_commit or snapshot_settings.snapshot_source_commit
         manifest_path = publish_snapshot_bundle(
-            recordings_path=recordings_path,
+            daily_path=daily_path,
             audit_path=audit_path,
             snapshot_root=snapshot_root,
             snapshot_id=snapshot_id,

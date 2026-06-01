@@ -1,14 +1,15 @@
 # openSMILE Feature Overview (Current Pipeline)
 
-This project currently extracts **openSMILE eGeMAPSv02 Functionals** at recording level:
+This project currently extracts **openSMILE eGeMAPSv02 Functionals** at recording level and publishes a daily canonical table:
 
 - Feature set: `opensmile.FeatureSet.eGeMAPSv02`
 - Feature level: `opensmile.FeatureLevel.Functionals`
 - Expected feature count: `88`
 - Sampling rate: `16000` Hz (`resample=True`)
-- Prefix in output parquet: `egemaps_`
+- Base per-recording feature prefix: `egemaps_`
+- Canonical daily output prefixes: `vowel_egemaps_` and `prosody_egemaps_`
 
-This aligns with the canonical first-pass scope in `USER_STORIES.md` (eGeMAPSv02 as primary interpretable set, ComParE as deferred optional).
+The canonical artifact is one row per `userId` and UTC day, with per-task median aggregation and task-separated feature namespaces.
 
 ## Feature Domains and Counts
 

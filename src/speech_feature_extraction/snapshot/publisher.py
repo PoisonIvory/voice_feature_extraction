@@ -13,7 +13,7 @@ from speech_feature_extraction.snapshot.contract_schema import (
     DATASET_NAME,
     DATASET_VERSION,
     DEFAULT_AUDIT_FILENAME,
-    DEFAULT_RECORDINGS_FILENAME,
+    DEFAULT_DAILY_FILENAME,
     LATEST_POINTER_FILENAME,
     MANIFEST_FILENAME,
     build_file_descriptor,
@@ -26,7 +26,7 @@ from speech_feature_extraction.snapshot.provenance import build_provenance
 
 def publish_snapshot_bundle(
     *,
-    recordings_path: Path,
+    daily_path: Path,
     audit_path: Path,
     snapshot_root: Path,
     snapshot_id: str | None = None,
@@ -43,15 +43,15 @@ def publish_snapshot_bundle(
     snapshot_dir = snapshot_root / DATASET_NAME / DATASET_VERSION / resolved_snapshot
     snapshot_dir.mkdir(parents=True, exist_ok=True)
 
-    published_recordings = _copy_artifact(recordings_path, snapshot_dir / DEFAULT_RECORDINGS_FILENAME)
+    published_daily = _copy_artifact(daily_path, snapshot_dir / DEFAULT_DAILY_FILENAME)
     published_audit = _copy_artifact(audit_path, snapshot_dir / DEFAULT_AUDIT_FILENAME)
 
-    recordings_frame = pd.read_parquet(published_recordings)
+    daily_frame = pd.read_parquet(published_daily)
     audit_frame = pd.read_parquet(published_audit)
-    validate_required_columns(recordings_frame)
+    validate_required_columns(daily_frame)
 
-    resolved_pipeline_version = pipeline_version or _infer_single_value(recordings_frame, "extractorVersion")
-    resolved_opensmile_version = opensmile_version or _infer_single_value(recordings_frame, "libraryVersion")
+    resolved_pipeline_version = pipeline_version or _infer_single_value(daily_frame, "extractorVersion")
+    resolved_opensmile_version = opensmile_version or _infer_single_value(daily_frame, "libraryVersion")
     provenance = build_provenance(
         source_commit=source_commit,
         pipeline_version=resolved_pipeline_version,
@@ -61,7 +61,7 @@ def publish_snapshot_bundle(
     )
 
     file_descriptors = {
-        "recordings": build_file_descriptor(published_recordings, recordings_frame),
+        "daily": build_file_descriptor(published_daily, daily_frame),
         "audit": build_file_descriptor(published_audit, audit_frame),
     }
     manifest = build_manifest(
