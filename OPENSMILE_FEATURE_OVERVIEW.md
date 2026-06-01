@@ -154,25 +154,6 @@ The pipeline also computes LLD-derived QC metrics:
 
 These are for task quality control and are not part of the canonical 88 eGeMAPSv02 functionals.
 
-## Optional Geometry-Derived Feature Block
-
-The extractor now supports an optional second feature block built from the existing
-eGeMAPS formant means (`F1/2/3frequency_sma3nz_amean`).
-
-- Enable in CLI with `extract --include-geometry-derived`
-- Output prefix: `egemaps_geom_`
-- Added fields:
-  - `egemaps_geom_f1_f2_delta_hz_amean`
-  - `egemaps_geom_f2_f3_delta_hz_amean`
-  - `egemaps_geom_f1_f3_delta_hz_amean`
-  - `egemaps_geom_f2_f1_ratio_amean`
-  - `egemaps_geom_f3_f2_ratio_amean`
-  - `egemaps_geom_f3_f1_ratio_amean`
-  - `egemaps_geom_formant_spacing_hz_amean`
-  - `egemaps_geom_apparent_vtl_cm_amean`
-
-The VTL value is an acoustic proxy from formant spacing (`VTL ~= c / (2*dF)`), not an anatomical measurement.
-
 ## Literature-Grounded Assessment
 
 ## Is 88 "too light"?
@@ -208,7 +189,7 @@ If your specific research question is geometric/articulatory change tracking, ga
 Given current scope and `USER_STORIES.md`, keep the current canonical dataset on eGeMAPSv02 and consider:
 
 1. **Keep eGeMAPSv02 as the default production baseline** (current choice is methodologically solid and reproducible).
-2. **Add a second, optional "geometry-derived" feature block** computed from existing formant outputs (simple and interpretable; no explosion to 6k+ dimensions).
+2. **If geometry analysis is needed later, derive those metrics in a separate analysis step** so the extraction artifact stays canonical and stable.
 3. **Add optional ComParE_2016 experiments only after baseline stability** (already aligned with your methodology story).
 
 This keeps the main pipeline simple and auditable while adding articulatory sensitivity where your research question needs it.

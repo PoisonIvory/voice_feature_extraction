@@ -11,6 +11,7 @@ The LLD extraction enables computation of:
 
 from __future__ import annotations
 
+import importlib
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -20,7 +21,6 @@ from speech_feature_extraction.constants import (
     OPENSMILE_EGEMAPS_EXPECTED_FEATURE_COUNT,
     OPENSMILE_EGEMAPS_PREFIX,
 )
-from speech_feature_extraction.geometry_features import compute_geometry_derived_features
 
 
 @dataclass
@@ -42,13 +42,17 @@ class OpenSmileEgemapsExtractor:
     (for task-specific quality control).
     """
 
-    def __init__(self, include_geometry_derived: bool = False) -> None:
-        import opensmile
+    def __init__(self) -> None:
+        try:
+            opensmile = importlib.import_module("opensmile")
+        except ModuleNotFoundError as error:
+            raise ModuleNotFoundError(
+                "openSMILE Python package is not installed. Install with `pip install opensmile`."
+            ) from error
 
         self._opensmile = opensmile
         self._feature_set_name = "opensmile.FeatureSet.eGeMAPSv02"
         self._feature_level_name = "opensmile.FeatureLevel.Functionals"
-        self._include_geometry_derived = include_geometry_derived
         self._sampling_rate_hz = 16000
         self._resample = True
         self._channels = 0
@@ -105,7 +109,6 @@ class OpenSmileEgemapsExtractor:
             "opensmileResampleEnabled": self._resample,
             "opensmileChannels": self._channels,
             "opensmileMixdownEnabled": self._mixdown,
-            "opensmileGeometryDerivedEnabled": self._include_geometry_derived,
         }
 
     def extract_lld_qc_metrics(self, path: Path) -> LldQcMetrics:
@@ -226,11 +229,6 @@ class OpenSmileEgemapsExtractor:
             f"{OPENSMILE_EGEMAPS_PREFIX}{name}": value
             for name, value in features.items()
         }
-        if getattr(self, "_include_geometry_derived", False):
-            geometry_features = compute_geometry_derived_features(features)
-            prefixed.update(geometry_features)
-            prefixed["qc_feature_block_geometry_derived_enabled"] = True
-            prefixed["qc_feature_count_geometry_derived"] = len(geometry_features)
         prefixed["qc_opensmile_egemaps_success"] = True
         prefixed["qc_feature_count_egemaps"] = len(features)
         prefixed["qc_feature_count_egemaps_expected"] = OPENSMILE_EGEMAPS_EXPECTED_FEATURE_COUNT
