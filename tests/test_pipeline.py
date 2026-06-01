@@ -7,7 +7,6 @@ from speech_feature_extraction.pipeline import run_extract
 class _Settings:
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = data_dir
-        self.exports_dir = data_dir.parent / "exports"
 
     @property
     def raw_audio_dir(self) -> Path:
@@ -172,67 +171,3 @@ def test_run_extract_writes_structured_failure_stage(
     assert row["pipelineStatus"] == "failed"
     assert row["qc_failure_stage"] == "opensmile_extract"
     assert row["featureSet"] == "opensmile.FeatureSet.eGeMAPSv02"
-
-
-def test_run_extract_publishes_snapshot_when_enabled(
-    tmp_path: Path,
-    monkeypatch,
-) -> None:
-    settings = _settings(tmp_path)
-    parquet_store: dict[str, list[dict[str, object]]] = {}
-    publish_calls: list[dict[str, object]] = []
-
-    def _fake_read_rows_parquet(path: Path) -> list[dict[str, object]]:
-        return list(parquet_store.get(path.name, []))
-
-    def _fake_write_rows_parquet(rows: list[dict[str, object]], path: Path) -> Path:
-        parquet_store[path.name] = list(rows)
-        return path
-
-    def _fake_publish_snapshot_bundle(**kwargs) -> Path:
-        publish_calls.append(kwargs)
-        return Path("exports/snapshots/speech-features/v3/2026-06-01/manifest.json")
-
-    manifest_rows = [
-        {
-            "recordingId": "to_process",
-            "pipelineStatus": "pending",
-            "taskType": "vowel",
-            "qc_warning_codes": [],
-            "skipReason": None,
-            "recordedDate": "2026-06-01",
-        },
-    ]
-
-    monkeypatch.setattr("speech_feature_extraction.pipeline.AppwriteGateway", _FakeGateway)
-    monkeypatch.setattr("speech_feature_extraction.pipeline.OpenSmileEgemapsExtractor", _FakeExtractor)
-    monkeypatch.setattr("speech_feature_extraction.pipeline._load_manifest_rows", lambda _: manifest_rows)
-    monkeypatch.setattr("speech_feature_extraction.pipeline.sha256_file", lambda _: "new_hash")
-    monkeypatch.setattr("speech_feature_extraction.pipeline.read_rows_parquet", _fake_read_rows_parquet)
-    monkeypatch.setattr("speech_feature_extraction.pipeline.write_rows_parquet", _fake_write_rows_parquet)
-    monkeypatch.setattr("speech_feature_extraction.pipeline.publish_snapshot_bundle", _fake_publish_snapshot_bundle)
-    monkeypatch.setattr("speech_feature_extraction.pipeline.detect_source_commit", lambda _: "abc1234")
-    monkeypatch.setattr(
-        "speech_feature_extraction.pipeline.inspect_wav",
-        lambda _: {
-            "qc_audio_readable": True,
-            "qc_duration_sec": 3.0,
-            "qc_clipping_ratio": 0.0,
-            "qc_warning_codes": [],
-            "qc_failure_reason": None,
-        },
-    )
-
-    run_extract(
-        settings=settings,
-        limit=1,
-        publish_snapshot=True,
-        snapshot_id="2026-06-01",
-        update_latest_snapshot=True,
-    )
-
-    assert len(publish_calls) == 1
-    call = publish_calls[0]
-    assert call["snapshot_id"] == "2026-06-01"
-    assert call["update_latest"] is True
-    assert call["source_commit"] == "abc1234"

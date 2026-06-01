@@ -37,10 +37,10 @@ Download in-scope WAVs and extract openSMILE eGeMAPSv02 features:
 extract-speech-features extract
 ```
 
-Download/extract and publish an immutable snapshot bundle:
+Publish an immutable snapshot bundle from existing processed parquet outputs:
 
 ```sh
-extract-speech-features extract --publish-snapshot --snapshot-id 2026-06-01 --update-latest
+extract-speech-features publish-snapshot --snapshot-id 2026-06-01 --update-latest
 ```
 
 Process a small smoke-test batch:
@@ -68,7 +68,7 @@ Each completed extraction row records lineage fields including:
 
 ## Snapshot Publishing Contract
 
-When snapshot publishing is enabled, extraction also writes immutable snapshot bundles under:
+Snapshot publishing is a separate workflow from extraction and writes immutable bundles under:
 
 - `exports/snapshots/speech-features/v3/<snapshot>/voice_features_v3_recordings.parquet`
 - `exports/snapshots/speech-features/v3/<snapshot>/voice_features_v3_audit.parquet`
@@ -83,10 +83,12 @@ When snapshot publishing is enabled, extraction also writes immutable snapshot b
 
 Environment variables:
 
-- `SPEECH_PUBLISH_SNAPSHOT` (`true`/`false`, default `false`)
 - `SPEECH_SNAPSHOT_ROOT` (default `exports/snapshots`)
 - `SPEECH_SNAPSHOT_ID` (optional explicit snapshot ID)
 - `SPEECH_UPDATE_LATEST` (`true`/`false`, default `false`)
+- `SPEECH_SNAPSHOT_PIPELINE_VERSION` (optional provenance override)
+- `SPEECH_SNAPSHOT_OPENSMILE_VERSION` (optional provenance override)
+- `SPEECH_SNAPSHOT_SOURCE_COMMIT` (optional provenance override)
 
 ## Reproducibility Notes
 

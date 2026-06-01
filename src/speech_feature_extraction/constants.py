@@ -13,31 +13,6 @@ OPENSMILE_EGEMAPS_EXPECTED_FEATURE_COUNT = 88
 RECORDINGS_PARQUET = "voice_features_v3_recordings.parquet"
 AUDIT_PARQUET = "voice_features_v3_audit.parquet"
 
-SNAPSHOT_MANIFEST_FILENAME = "manifest.json"
-SNAPSHOT_LATEST_POINTER_FILENAME = "latest.json"
-SNAPSHOT_MANIFEST_VERSION = "1.0"
-SNAPSHOT_DATASET_NAME = "speech-features"
-SNAPSHOT_DATASET_VERSION = "v3"
-SNAPSHOT_REQUIRED_CORE_COLUMNS = (
-    "recordingId",
-    "recordedDate",
-    "taskType",
-    "pipelineStatus",
-    "extractorVersion",
-    "featureSet",
-    "featureLevel",
-    "audioHash",
-    "qc_task_qc_passed",
-    "qc_warning_codes",
-    "qc_opensmile_egemaps_success",
-    "qc_feature_count_egemaps",
-    "qc_feature_count_egemaps_expected",
-)
-SNAPSHOT_REQUIRED_FEATURE_PREFIXES = (OPENSMILE_EGEMAPS_PREFIX,)
-SNAPSHOT_REQUIRED_FEATURE_COUNT_BY_PREFIX = {
-    OPENSMILE_EGEMAPS_PREFIX: OPENSMILE_EGEMAPS_EXPECTED_FEATURE_COUNT,
-}
-
 # Task-specific quality control thresholds
 # Based on ASHA protocols, MDVP reference values, and eGeMAPS documentation.
 # NOTE: MDVP perturbation cutoffs are used as screening guidance only; they are

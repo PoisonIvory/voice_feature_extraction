@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import argparse
 import logging
+from pathlib import Path
 
-from speech_feature_extraction.config import load_settings
+from speech_feature_extraction.config import load_settings, load_snapshot_publish_settings
 from speech_feature_extraction.pipeline import run_audit, run_extract
+from speech_feature_extraction.snapshot.contract_schema import (
+    DEFAULT_AUDIT_FILENAME,
+    DEFAULT_RECORDINGS_FILENAME,
+)
+from speech_feature_extraction.snapshot.publisher import publish_snapshot_bundle
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,47 +42,97 @@ def main() -> None:
         action="store_true",
         help="Redownload WAV files even when they already exist in the local cache.",
     )
-    extract_parser.add_argument(
-        "--publish-snapshot",
-        action=argparse.BooleanOptionalAction,
-        default=None,
-        help="Publish immutable parquet+manifest snapshot after extraction.",
+
+    publish_parser = subparsers.add_parser(
+        "publish-snapshot",
+        help="Build snapshot manifest and publish immutable artifact bundle.",
     )
-    extract_parser.add_argument(
-        "--snapshot-id",
-        help="Snapshot ID to publish, e.g. 2026-06-01. Defaults to settings or current UTC date.",
+    publish_parser.add_argument(
+        "--recordings-path",
+        help="Path to recordings parquet. Defaults to data/processed canonical output.",
     )
-    extract_parser.add_argument(
+    publish_parser.add_argument(
+        "--audit-path",
+        help="Path to audit parquet. Defaults to data/processed canonical output.",
+    )
+    publish_parser.add_argument(
+        "--snapshot-root",
+        help="Snapshot root directory. Defaults to SPEECH_SNAPSHOT_ROOT or exports/snapshots.",
+    )
+    publish_parser.add_argument("--snapshot-id", help="Snapshot ID, e.g. 2026-06-01.")
+    publish_parser.add_argument(
         "--update-latest",
         action=argparse.BooleanOptionalAction,
         default=None,
-        help="Update latest.json pointer for the dataset version when publishing snapshots.",
+        help="Update latest.json pointer for this dataset version.",
+    )
+    publish_parser.add_argument(
+        "--pipeline-version",
+        help="Override manifest provenance pipeline_version. Defaults to value inferred from parquet.",
+    )
+    publish_parser.add_argument(
+        "--opensmile-version",
+        help="Override manifest provenance opensmile_version. Defaults to value inferred from parquet.",
+    )
+    publish_parser.add_argument(
+        "--source-commit",
+        help="Override manifest provenance source_commit. Defaults to SPEECH_SNAPSHOT_SOURCE_COMMIT or git.",
     )
 
     args = parser.parse_args()
     _configure_logging(args.log_level)
     LOGGER.info("Starting command=%s", args.command)
-    settings = load_settings(args.env_file)
-
     if args.command == "audit":
+        settings = load_settings(args.env_file)
         audit_path = run_audit(settings, user_id=args.user_id)
         LOGGER.info("Audit finished: %s", audit_path)
         print(f"Wrote audit parquet: {audit_path}")
         return
 
     if args.command == "extract":
+        settings = load_settings(args.env_file)
         recordings_path, audit_path = run_extract(
             settings,
             limit=args.limit,
             force_download=args.force_download,
             user_id=args.user_id,
-            publish_snapshot=args.publish_snapshot,
-            snapshot_id=args.snapshot_id,
-            update_latest_snapshot=args.update_latest,
         )
         LOGGER.info("Extract finished: recordings=%s audit=%s", recordings_path, audit_path)
         print(f"Wrote recordings parquet: {recordings_path}")
         print(f"Wrote audit parquet: {audit_path}")
+        return
+
+    if args.command == "publish-snapshot":
+        snapshot_settings = load_snapshot_publish_settings(args.env_file)
+        recordings_path = (
+            Path(args.recordings_path)
+            if args.recordings_path
+            else snapshot_settings.processed_dir / DEFAULT_RECORDINGS_FILENAME
+        )
+        audit_path = (
+            Path(args.audit_path) if args.audit_path else snapshot_settings.processed_dir / DEFAULT_AUDIT_FILENAME
+        )
+        snapshot_root = Path(args.snapshot_root) if args.snapshot_root else snapshot_settings.snapshot_root
+        snapshot_id = args.snapshot_id or snapshot_settings.snapshot_id
+        update_latest = (
+            snapshot_settings.snapshot_update_latest if args.update_latest is None else args.update_latest
+        )
+        pipeline_version = args.pipeline_version or snapshot_settings.snapshot_pipeline_version
+        opensmile_version = args.opensmile_version or snapshot_settings.snapshot_opensmile_version
+        source_commit = args.source_commit or snapshot_settings.snapshot_source_commit
+        manifest_path = publish_snapshot_bundle(
+            recordings_path=recordings_path,
+            audit_path=audit_path,
+            snapshot_root=snapshot_root,
+            snapshot_id=snapshot_id,
+            update_latest=update_latest,
+            pipeline_version=pipeline_version,
+            opensmile_version=opensmile_version,
+            source_commit=source_commit,
+            repo_dir=Path(__file__).resolve().parents[2],
+        )
+        LOGGER.info("Snapshot publish finished: %s", manifest_path)
+        print(f"Wrote snapshot manifest: {manifest_path}")
         return
 
     parser.error(f"Unknown command: {args.command}")
