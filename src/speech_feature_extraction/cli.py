@@ -37,9 +37,20 @@ def main() -> None:
         help="Redownload WAV files even when they already exist in the local cache.",
     )
     extract_parser.add_argument(
-        "--include-geometry-derived",
-        action="store_true",
-        help="Include optional geometry-derived features computed from eGeMAPS formants.",
+        "--publish-snapshot",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Publish immutable parquet+manifest snapshot after extraction.",
+    )
+    extract_parser.add_argument(
+        "--snapshot-id",
+        help="Snapshot ID to publish, e.g. 2026-06-01. Defaults to settings or current UTC date.",
+    )
+    extract_parser.add_argument(
+        "--update-latest",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help="Update latest.json pointer for the dataset version when publishing snapshots.",
     )
 
     args = parser.parse_args()
@@ -59,7 +70,9 @@ def main() -> None:
             limit=args.limit,
             force_download=args.force_download,
             user_id=args.user_id,
-            include_geometry_derived=args.include_geometry_derived,
+            publish_snapshot=args.publish_snapshot,
+            snapshot_id=args.snapshot_id,
+            update_latest_snapshot=args.update_latest,
         )
         LOGGER.info("Extract finished: recordings=%s audit=%s", recordings_path, audit_path)
         print(f"Wrote recordings parquet: {recordings_path}")

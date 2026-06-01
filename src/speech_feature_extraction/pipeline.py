@@ -18,6 +18,7 @@ from speech_feature_extraction.constants import AUDIT_PARQUET, EXTRACTOR_VERSION
 from speech_feature_extraction.metadata import build_manifest_rows
 from speech_feature_extraction.opensmile_egemaps import OpenSmileEgemapsExtractor
 from speech_feature_extraction.parquet import read_rows_parquet, write_rows_parquet
+from speech_feature_extraction.snapshot_publish import detect_source_commit, publish_snapshot_bundle
 from speech_feature_extraction.task_qc import evaluate_task_qc
 
 LOGGER = logging.getLogger(__name__)
@@ -42,21 +43,17 @@ def run_extract(
     limit: int | None = None,
     force_download: bool = False,
     user_id: str | None = None,
-    include_geometry_derived: bool = False,
+    publish_snapshot: bool | None = None,
+    snapshot_id: str | None = None,
+    update_latest_snapshot: bool | None = None,
 ) -> tuple[Path, Path]:
-    LOGGER.info(
-        "Extract run started (limit=%s force_download=%s user_id=%s include_geometry_derived=%s)",
-        limit,
-        force_download,
-        user_id,
-        include_geometry_derived,
-    )
+    LOGGER.info("Extract run started (limit=%s force_download=%s user_id=%s)", limit, force_download, user_id)
     gateway = AppwriteGateway(settings)
     manifest_rows = _load_manifest_rows(gateway)
     if user_id:
         manifest_rows = [row for row in manifest_rows if row.get("userId") == user_id]
         LOGGER.info("Filtered to user_id=%s: %d rows", user_id, len(manifest_rows))
-    extractor = OpenSmileEgemapsExtractor(include_geometry_derived=include_geometry_derived)
+    extractor = OpenSmileEgemapsExtractor()
     recordings_existing = read_rows_parquet(settings.processed_dir / RECORDINGS_PARQUET)
     recording_rows: list[dict[str, Any]] = []
     audit_rows_by_recording_id = {row["recordingId"]: dict(row) for row in manifest_rows}
@@ -193,6 +190,31 @@ def run_extract(
         recordings_path,
         audit_path,
     )
+    should_publish_snapshot = (
+        getattr(settings, "publish_snapshot", False) if publish_snapshot is None else publish_snapshot
+    )
+    resolved_snapshot_id = getattr(settings, "snapshot_id", None) if snapshot_id is None else snapshot_id
+    resolved_update_latest = (
+        getattr(settings, "snapshot_update_latest", False)
+        if update_latest_snapshot is None
+        else update_latest_snapshot
+    )
+    if should_publish_snapshot:
+        manifest_path = publish_snapshot_bundle(
+            recordings_path=recordings_path,
+            audit_path=audit_path,
+            snapshot_root=getattr(
+                settings,
+                "snapshot_root",
+                getattr(settings, "exports_dir", Path("exports")) / "snapshots",
+            ),
+            snapshot_id=resolved_snapshot_id,
+            pipeline_version=EXTRACTOR_VERSION,
+            opensmile_version=extractor.extraction_metadata.get("libraryVersion"),
+            source_commit=detect_source_commit(_repository_root()),
+            update_latest=resolved_update_latest,
+        )
+        LOGGER.info("Snapshot publish completed: %s", manifest_path)
     return recordings_path, audit_path
 
 
@@ -252,3 +274,7 @@ def _upsert_recording_rows(
         rows_by_recording_id[str(recording_id)] = row
 
     return [rows_by_recording_id[key] for key in sorted(rows_by_recording_id)]
+
+
+def _repository_root() -> Path:
+    return Path(__file__).resolve().parents[2]

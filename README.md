@@ -37,6 +37,12 @@ Download in-scope WAVs and extract openSMILE eGeMAPSv02 features:
 extract-speech-features extract
 ```
 
+Download/extract and publish an immutable snapshot bundle:
+
+```sh
+extract-speech-features extract --publish-snapshot --snapshot-id 2026-06-01 --update-latest
+```
+
 Process a small smoke-test batch:
 
 ```sh
@@ -59,6 +65,28 @@ Each completed extraction row records lineage fields including:
 - openSMILE config file identity
 - sample-rate and resampling settings
 - SHA256 of the processed audio file
+
+## Snapshot Publishing Contract
+
+When snapshot publishing is enabled, extraction also writes immutable snapshot bundles under:
+
+- `exports/snapshots/speech-features/v3/<snapshot>/voice_features_v3_recordings.parquet`
+- `exports/snapshots/speech-features/v3/<snapshot>/voice_features_v3_audit.parquet`
+- `exports/snapshots/speech-features/v3/<snapshot>/manifest.json`
+
+`manifest.json` includes:
+
+- `manifest_version` (`1.0`)
+- provenance (`source_commit`, `pipeline_version`, `opensmile_version`, `python_version`)
+- per-file integrity (`content_sha256`, `file_size_bytes`) and schema hashes
+- required consumer contract (`required_core_columns`, `required_feature_prefixes`, `required_feature_count_by_prefix`)
+
+Environment variables:
+
+- `SPEECH_PUBLISH_SNAPSHOT` (`true`/`false`, default `false`)
+- `SPEECH_SNAPSHOT_ROOT` (default `exports/snapshots`)
+- `SPEECH_SNAPSHOT_ID` (optional explicit snapshot ID)
+- `SPEECH_UPDATE_LATEST` (`true`/`false`, default `false`)
 
 ## Reproducibility Notes
 

@@ -25,6 +25,10 @@ class Settings:
     appwrite_audio_bucket_id: str
     data_dir: Path
     exports_dir: Path
+    publish_snapshot: bool
+    snapshot_root: Path
+    snapshot_id: str | None
+    snapshot_update_latest: bool
 
     @property
     def raw_audio_dir(self) -> Path:
@@ -53,6 +57,10 @@ def load_settings(env_file: str | None = None) -> Settings:
         appwrite_audio_bucket_id=os.getenv("APPWRITE_AUDIO_BUCKET_ID", APPWRITE_AUDIO_BUCKET_ID),
         data_dir=Path(os.getenv("SPEECH_DATA_DIR", "data")),
         exports_dir=Path(os.getenv("SPEECH_EXPORTS_DIR", "exports")),
+        publish_snapshot=_env_bool("SPEECH_PUBLISH_SNAPSHOT", False),
+        snapshot_root=Path(os.getenv("SPEECH_SNAPSHOT_ROOT", "exports/snapshots")),
+        snapshot_id=os.getenv("SPEECH_SNAPSHOT_ID") or None,
+        snapshot_update_latest=_env_bool("SPEECH_UPDATE_LATEST", False),
     )
     validate_settings(settings)
     return settings
@@ -67,3 +75,15 @@ def validate_settings(settings: Settings) -> None:
     if missing:
         names = ", ".join(missing)
         raise ValueError(f"Missing required environment variable(s): {names}")
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    value = raw_value.strip().lower()
+    if value in {"1", "true", "yes", "on"}:
+        return True
+    if value in {"0", "false", "no", "off"}:
+        return False
+    return default
