@@ -39,7 +39,7 @@ class AppwriteGateway:
                 bucket_id=self._settings.appwrite_audio_bucket_id,
                 queries=[Query.limit(limit), Query.offset(offset)],
             )
-            batch = response.get("files", [])
+            batch = [f.to_dict() for f in response.files]
             files.extend(batch)
             LOGGER.debug("Fetched storage file batch size=%d total=%d", len(batch), len(files))
             if len(batch) < limit:
@@ -61,7 +61,7 @@ class AppwriteGateway:
                 collection_id=self._settings.appwrite_voice_recordings_collection_id,
                 queries=[Query.limit(limit), Query.offset(offset)],
             )
-            batch = response.get("documents", [])
+            batch = [d.to_dict() for d in response.documents]
             documents.extend(batch)
             LOGGER.debug("Fetched voice recording batch size=%d total=%d", len(batch), len(documents))
             if len(batch) < limit:
