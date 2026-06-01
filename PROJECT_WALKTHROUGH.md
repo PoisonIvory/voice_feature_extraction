@@ -26,8 +26,10 @@ flowchart TD
     manifestBuilder --> extractCommand[ExtractCommand]
     extractCommand --> wavCache[LocalWavCache]
     wavCache --> wavQc[WavQualityChecks]
-    wavQc --> opensmileExtract[openSMILEeGeMAPSv02Functionals]
-    opensmileExtract --> recordingsParquet[RecordingsParquet]
+    wavQc --> opensmileExtract[openSMILEeGeMAPSv02]
+    opensmileExtract --> lldQc[LLDBasedQCMetrics]
+    lldQc --> taskQc[TaskSpecificQC]
+    taskQc --> recordingsParquet[RecordingsParquet]
     manifestBuilder --> auditParquet[AuditParquet]
     extractCommand --> auditParquet
 ```
@@ -65,7 +67,45 @@ flowchart TD
     downloadAudio --> wavReadable{WavReadable}
     wavReadable -- No --> failedWav[FailedWavRead]
     wavReadable -- Yes --> extractFeatures[ExtractopenSMILEFeatures]
-    extractFeatures --> completed[CompletedRow]
+    extractFeatures --> taskQc{TaskSpecificQC}
+    taskQc -- Fail --> qcFailed[QCFailedRow]
+    taskQc -- Pass --> completed[CompletedRow]
+```
+
+## 4.1) Task-specific quality control
+
+Sustained vowels and connected speech (prosody) have fundamentally different acoustic characteristics, so they require different quality criteria. This follows best practices from:
+- ASHA Expert Panel 2018 protocols for voice assessment
+- eGeMAPS (Eyben et al. 2015) documentation on voiced/unvoiced segmentation
+- MDVP clinical thresholds for jitter/shimmer
+
+### Vowel task QC criteria
+
+| Criterion | Threshold | Rationale |
+|-----------|-----------|-----------|
+| Duration | 2-15 seconds | ASHA recommends 3-5s, analyze middle portion |
+| Voiced ratio | > 90% | Sustained vowel should be almost entirely voiced |
+| F0 stability (CoV) | < 20% (warning threshold) | Unstable pitch indicates poor task compliance |
+| Jitter | < 1.5% (warning threshold) | MDVP reference threshold is 1.04% |
+| Shimmer | < 4.5% (warning threshold) | MDVP reference threshold is 3.81% |
+| Clipping | < 0.1% | Any clipping invalidates perturbation measures |
+
+### Prosody task QC criteria
+
+| Criterion | Threshold | Rationale |
+|-----------|-----------|-----------|
+| Duration | 2.5-30 seconds | Longer samples needed for temporal patterns |
+| Voiced ratio | 30-95% (high end warns) | Should have both voiced and unvoiced (pauses) |
+| Clipping | < 0.1% | Background noise affects pause detection |
+
+Note: Jitter/shimmer thresholds are NOT applied to prosody because these metrics are only reliable for sustained phonation. Perturbation thresholds are used as practical QC screening values, not clinical diagnostic cutoffs.
+
+### How voiced ratio is computed
+
+The pipeline extracts Low-Level Descriptors (LLDs) from openSMILE in addition to Functionals. The LLD feature `F0semitoneFrom27.5Hz_sma3nz` uses the "nz" (non-zero) convention: frames where F0 could not be detected have value 0. The voiced ratio is simply:
+
+```
+voiced_ratio = count(frames where F0 > 0) / total_frames
 ```
 
 ## 5) Core files and responsibilities
@@ -79,9 +119,13 @@ flowchart TD
 - `src/speech_feature_extraction/metadata.py`
   - builds normalized manifest rows and skip reasons
 - `src/speech_feature_extraction/audio_qc.py`
-  - SHA256 hashing and basic WAV checks
+  - SHA256 hashing, WAV format checks, and clipping detection
 - `src/speech_feature_extraction/opensmile_egemaps.py`
-  - wraps openSMILE eGeMAPSv02 functionals extraction
+  - wraps openSMILE eGeMAPSv02 extraction (both Functionals and LLDs)
+- `src/speech_feature_extraction/task_qc.py`
+  - task-specific quality control for vowel vs prosody recordings
+- `src/speech_feature_extraction/constants.py`
+  - shared constants including task-specific QC thresholds
 - `src/speech_feature_extraction/parquet.py`
   - writes parquet outputs
 
@@ -109,6 +153,12 @@ The project follows your user-story methodology:
 - explicit in-scope tasks (`vowel`, `prosody`)
 - reproducibility via extractor metadata and file hashing
 - transparent auditing instead of silently dropping bad rows
+- **task-specific quality gating** based on published clinical protocols (ASHA 2018, MDVP thresholds, eGeMAPS documentation)
+
+The task-specific QC is particularly important because:
+1. Sustained vowels and connected speech have different expected characteristics
+2. Jitter/shimmer metrics are only valid for sustained phonation
+3. Voiced ratio expectations differ (vowels should be >90% voiced, prosody should have natural pauses)
 
 This is designed to support an honest research conversation with your professor.
 
@@ -118,7 +168,9 @@ This is designed to support an honest research conversation with your professor.
 - Appwrite ingestion
 - metadata normalization
 - eGeMAPSv02 functionals extraction
-- recording-level and audit parquet outputs
+- LLD-based voiced ratio and F0 stability analysis
+- task-specific quality gating (different criteria for vowel vs prosody)
+- recording-level and audit parquet outputs with detailed QC metrics
 
 ### Planned next (not fully implemented yet)
 - daily-level table for cycle-day and Oura analysis

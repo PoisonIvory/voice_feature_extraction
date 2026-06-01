@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from speech_feature_extraction.opensmile_egemaps import LldQcMetrics
 from speech_feature_extraction.pipeline import run_extract
 
 
@@ -50,6 +51,19 @@ class _FakeExtractor:
             "qc_feature_count_egemaps_expected": 88,
         }
 
+    def extract_file_with_qc(self, path: Path) -> tuple[dict[str, object], LldQcMetrics]:
+        return (
+            self.extract_file(path),
+            LldQcMetrics(
+                voiced_ratio=0.95,
+                f0_cov=0.10,
+                jitter_mean=0.8,
+                shimmer_db_mean=0.2,
+                total_frames=100,
+                voiced_frames=95,
+            ),
+        )
+
 
 def _settings(tmp_path: Path) -> _Settings:
     return _Settings(data_dir=tmp_path / "data")
@@ -76,9 +90,9 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
         return path
 
     manifest_rows = [
-        {"recordingId": "to_process", "pipelineStatus": "pending", "qc_warning_codes": [], "skipReason": None},
-        {"recordingId": "not_processed_due_to_limit", "pipelineStatus": "pending", "qc_warning_codes": [], "skipReason": None},
-        {"recordingId": "skipped_row", "pipelineStatus": "skipped", "qc_warning_codes": ["metadata_missing"], "skipReason": "metadata_error"},
+        {"recordingId": "to_process", "pipelineStatus": "pending", "taskType": "vowel", "qc_warning_codes": [], "skipReason": None},
+        {"recordingId": "not_processed_due_to_limit", "pipelineStatus": "pending", "taskType": "prosody", "qc_warning_codes": [], "skipReason": None},
+        {"recordingId": "skipped_row", "pipelineStatus": "skipped", "taskType": None, "qc_warning_codes": ["metadata_missing"], "skipReason": "metadata_error"},
     ]
 
     monkeypatch.setattr("speech_feature_extraction.pipeline.AppwriteGateway", _FakeGateway)
@@ -89,7 +103,13 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
     monkeypatch.setattr("speech_feature_extraction.pipeline.write_rows_parquet", _fake_write_rows_parquet)
     monkeypatch.setattr(
         "speech_feature_extraction.pipeline.inspect_wav",
-        lambda _: {"qc_audio_readable": True, "qc_warning_codes": [], "qc_failure_reason": None},
+        lambda _: {
+            "qc_audio_readable": True,
+            "qc_duration_sec": 3.0,
+            "qc_clipping_ratio": 0.0,
+            "qc_warning_codes": [],
+            "qc_failure_reason": None,
+        },
     )
 
     run_extract(settings=settings, limit=1)
@@ -121,11 +141,11 @@ def test_run_extract_writes_structured_failure_stage(
         return path
 
     manifest_rows = [
-        {"recordingId": "to_fail", "pipelineStatus": "pending", "qc_warning_codes": [], "skipReason": None},
+        {"recordingId": "to_fail", "pipelineStatus": "pending", "taskType": "vowel", "qc_warning_codes": [], "skipReason": None},
     ]
 
     class _FailingExtractor(_FakeExtractor):
-        def extract_file(self, _: Path) -> dict[str, object]:
+        def extract_file_with_qc(self, _: Path) -> tuple[dict[str, object], LldQcMetrics]:
             raise ValueError("boom")
 
     monkeypatch.setattr("speech_feature_extraction.pipeline.AppwriteGateway", _FakeGateway)
@@ -136,7 +156,13 @@ def test_run_extract_writes_structured_failure_stage(
     monkeypatch.setattr("speech_feature_extraction.pipeline.write_rows_parquet", _fake_write_rows_parquet)
     monkeypatch.setattr(
         "speech_feature_extraction.pipeline.inspect_wav",
-        lambda _: {"qc_audio_readable": True, "qc_warning_codes": [], "qc_failure_reason": None},
+        lambda _: {
+            "qc_audio_readable": True,
+            "qc_duration_sec": 3.0,
+            "qc_clipping_ratio": 0.0,
+            "qc_warning_codes": [],
+            "qc_failure_reason": None,
+        },
     )
 
     run_extract(settings=settings, limit=1)

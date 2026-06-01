@@ -54,7 +54,7 @@ class _FakeSmile:
 
 def _build_extractor(frame: _FakeFrame, feature_names: list[str]) -> OpenSmileEgemapsExtractor:
     extractor = OpenSmileEgemapsExtractor.__new__(OpenSmileEgemapsExtractor)
-    extractor._smile = _FakeSmile(frame, feature_names)
+    extractor._smile_functionals = _FakeSmile(frame, feature_names)
     extractor._feature_set_name = "opensmile.FeatureSet.eGeMAPSv02"
     extractor._feature_level_name = "opensmile.FeatureLevel.Functionals"
     extractor._sampling_rate_hz = 16000
