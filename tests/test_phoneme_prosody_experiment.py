@@ -1,12 +1,39 @@
-from speech_feature_extraction.phoneme_prosody_experiment.schema import (
-    PHONEME_PROSODY_EXPERIMENT_DATA_ROOT,
-    PHONEME_PROSODY_RAINBOW_PROFILE_FIELDS,
-    PHONEME_PROSODY_REQUIRED_FIELDS,
+from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
+    RAINBOW_PASSAGE_TEXT,
+    WordSegment,
+    check_mfa_available,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality import (
+    QUALITY_GOOD,
+    QUALITY_MARGINAL,
+    QUALITY_POOR,
+    QualityThresholds,
+    assess_segment_quality,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.rainbow_inventory import (
+    RAINBOW_PASSAGE_ARPABET_SEQUENCE,
+    RAINBOW_PASSAGE_EXPECTED_INVENTORY,
+    RAINBOW_PASSAGE_NASAL_COUNT,
+    RAINBOW_PASSAGE_PHONE_COUNTS,
+    RAINBOW_PASSAGE_TOTAL_PHONES,
+    get_expected_phone_count,
+    validate_phone_coverage,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.rainbow_profile import (
     AlignedPhonemeSegment,
     build_rainbow_template,
     summarize_alignment_against_template,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.schema import (
+    PHONEME_PROSODY_EXPERIMENT_DATA_ROOT,
+    PHONEME_PROSODY_RAINBOW_PROFILE_FIELDS,
+    PHONEME_PROSODY_REQUIRED_FIELDS,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.segment_features import (
+    MIN_ANALYSIS_DURATION_SEC,
+    SegmentBoundaries,
+    _compute_aggregates,
+    compute_segment_boundaries,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
     COARTICULATION_NASAL_BOTH,
@@ -111,3 +138,130 @@ def test_summarize_alignment_against_template_marks_unexpected_occurrence() -> N
 
     assert summary.coverage_ratio == 1.0
     assert "Z#1" in summary.unexpected_occurrence_keys
+
+
+def test_rainbow_passage_text_is_not_empty() -> None:
+    assert len(RAINBOW_PASSAGE_TEXT) > 100
+    assert "rainbow" in RAINBOW_PASSAGE_TEXT.lower()
+    assert "sunlight" in RAINBOW_PASSAGE_TEXT.lower()
+
+
+def test_rainbow_inventory_has_expected_phone_count() -> None:
+    assert RAINBOW_PASSAGE_TOTAL_PHONES > 200
+    assert len(RAINBOW_PASSAGE_ARPABET_SEQUENCE) == RAINBOW_PASSAGE_TOTAL_PHONES
+
+
+def test_rainbow_inventory_contains_expected_phones() -> None:
+    assert "N" in RAINBOW_PASSAGE_EXPECTED_INVENTORY
+    assert "M" in RAINBOW_PASSAGE_EXPECTED_INVENTORY
+    assert "AH" in RAINBOW_PASSAGE_EXPECTED_INVENTORY
+    assert "EY" in RAINBOW_PASSAGE_EXPECTED_INVENTORY
+
+
+def test_rainbow_nasal_count_is_reasonable() -> None:
+    assert RAINBOW_PASSAGE_NASAL_COUNT > 20
+
+
+def test_get_expected_phone_count_returns_correct_value() -> None:
+    assert get_expected_phone_count("AH") == RAINBOW_PASSAGE_PHONE_COUNTS["AH"]
+    assert get_expected_phone_count("NONEXISTENT") == 0
+
+
+def test_validate_phone_coverage_detects_missing_and_unexpected() -> None:
+    observed = {"N", "M", "ZZ"}
+    missing, unexpected = validate_phone_coverage(observed)
+
+    assert "ZZ" in unexpected
+    assert "AH" in missing
+    assert "N" not in missing
+
+
+def test_check_mfa_available_returns_tuple() -> None:
+    available, message = check_mfa_available()
+    assert isinstance(available, bool)
+    assert isinstance(message, str)
+
+
+def test_word_segment_dataclass_is_frozen() -> None:
+    segment = WordSegment(word="rainbow", start_sec=0.5, end_sec=1.0)
+    assert segment.word == "rainbow"
+    assert segment.start_sec == 0.5
+    assert segment.end_sec == 1.0
+
+
+def test_compute_segment_boundaries_applies_trim_when_duration_allows() -> None:
+    boundaries = compute_segment_boundaries(
+        start_sec=0.0,
+        end_sec=0.200,
+        trim_policy_ms=20.0,
+    )
+    assert boundaries.trim_applied is True
+    assert abs(boundaries.analysis_start_sec - 0.020) < 1e-9
+    assert abs(boundaries.analysis_end_sec - 0.180) < 1e-9
+
+
+def test_compute_segment_boundaries_skips_trim_for_short_segment() -> None:
+    boundaries = compute_segment_boundaries(
+        start_sec=0.0,
+        end_sec=0.050,
+        trim_policy_ms=20.0,
+    )
+    assert boundaries.trim_applied is False
+    assert boundaries.analysis_start_sec == 0.0
+    assert boundaries.analysis_end_sec == 0.050
+
+
+def test_assess_segment_quality_returns_good_for_long_segment() -> None:
+    assessment = assess_segment_quality(
+        duration_sec=0.100,
+        voiced_ratio=0.8,
+    )
+    assert assessment.quality == QUALITY_GOOD
+    assert assessment.score_raw is not None
+    assert assessment.score_raw >= 0.75
+
+
+def test_assess_segment_quality_returns_marginal_for_short_segment() -> None:
+    assessment = assess_segment_quality(
+        duration_sec=0.030,
+        voiced_ratio=0.2,
+    )
+    assert assessment.quality == QUALITY_MARGINAL
+
+
+def test_assess_segment_quality_returns_poor_for_very_short_segment() -> None:
+    assessment = assess_segment_quality(
+        duration_sec=0.015,
+        voiced_ratio=0.05,
+    )
+    assert assessment.quality == QUALITY_POOR
+    assert "short_duration" in assessment.reasons[0] or "low_voiced" in str(assessment.reasons)
+
+
+def test_assess_segment_quality_uses_custom_thresholds() -> None:
+    strict_thresholds = QualityThresholds(
+        min_duration_good_sec=0.200,
+        min_duration_marginal_sec=0.100,
+    )
+    assessment = assess_segment_quality(
+        duration_sec=0.080,
+        thresholds=strict_thresholds,
+    )
+    assert assessment.quality == QUALITY_POOR
+
+
+def test_compute_aggregates_uses_logrel_h1h2_fallback_column() -> None:
+    import pandas as pd
+
+    lld_frame = pd.DataFrame(
+        {
+            "F0semitoneFrom27.5Hz_sma3nz": [100.0, 110.0, 120.0, 130.0, 140.0],
+            "mfcc2_sma3": [1.0, 2.0, 3.0, 4.0, 5.0],
+            "F1bandwidth_sma3nz": [50.0, 51.0, 52.0, 53.0, 54.0],
+            "logRelF0-H1-H2_sma3nz": [0.1, 0.2, 0.3, 0.4, 0.5],
+        }
+    )
+
+    features = _compute_aggregates(lld_frame)
+    assert features.h1h2_mean is not None
+    assert abs(features.h1h2_mean - 0.3) < 1e-9

@@ -12,6 +12,8 @@ dependencies = [
   "appwrite",
   "opensmile>=2.5,<3",
   "pandas",
+  "praatio>=6.0,<7",
+  "pydub",
   "pyarrow",
   "python-dotenv",
 ]

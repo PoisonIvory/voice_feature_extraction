@@ -17,6 +17,9 @@ from speech_feature_extraction.snapshot.publisher import publish_snapshot_bundle
 
 LOGGER = logging.getLogger(__name__)
 
+DEFAULT_RAW_AUDIO_DIR = Path("data/raw_audio")
+DEFAULT_EXPERIMENT_OUTPUT_DIR = Path("data/experimental/phoneme_prosody")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -89,6 +92,34 @@ def main() -> None:
         help="Override manifest provenance source_commit. Defaults to SPEECH_SNAPSHOT_SOURCE_COMMIT or git.",
     )
 
+    phoneme_parser = subparsers.add_parser(
+        "extract-phoneme-prosody",
+        help="[EXPERIMENTAL] Run forced alignment on prosody recordings and extract phoneme-level features.",
+    )
+    phoneme_parser.add_argument(
+        "--audio-dir",
+        help=f"Directory containing prosody WAV files. Defaults to {DEFAULT_RAW_AUDIO_DIR}.",
+    )
+    phoneme_parser.add_argument(
+        "--output-dir",
+        help=f"Output directory for alignments and features. Defaults to {DEFAULT_EXPERIMENT_OUTPUT_DIR}.",
+    )
+    phoneme_parser.add_argument(
+        "--recording-ids",
+        nargs="*",
+        help="Specific recording IDs to process. Defaults to all prosody recordings.",
+    )
+    phoneme_parser.add_argument(
+        "--limit",
+        type=int,
+        help="Maximum number of recordings to process.",
+    )
+    phoneme_parser.add_argument(
+        "--check-only",
+        action="store_true",
+        help="Only check MFA installation and model availability, do not run alignment.",
+    )
+
     args = parser.parse_args()
     _configure_logging(args.log_level)
     LOGGER.info("Starting command=%s", args.command)
@@ -147,6 +178,10 @@ def main() -> None:
         print(f"Wrote snapshot manifest: {manifest_path}")
         return
 
+    if args.command == "extract-phoneme-prosody":
+        _run_phoneme_prosody_extraction(args)
+        return
+
     parser.error(f"Unknown command: {args.command}")
 
 
@@ -163,3 +198,120 @@ def _resolve_cli_user_id(parser: argparse.ArgumentParser, requested_user_id: str
     if requested_user_id != ENFORCED_USER_ID:
         parser.error(f"--user-id must be {ENFORCED_USER_ID}")
     return requested_user_id
+
+
+def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
+    """Run experimental phoneme prosody extraction."""
+    from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
+        check_mfa_available,
+        check_mfa_models_available,
+    )
+    from speech_feature_extraction.phoneme_prosody_experiment.pipeline import (
+        RecordingMetadata,
+        process_batch,
+    )
+
+    audio_dir = Path(args.audio_dir) if args.audio_dir else DEFAULT_RAW_AUDIO_DIR
+    output_dir = Path(args.output_dir) if args.output_dir else DEFAULT_EXPERIMENT_OUTPUT_DIR
+
+    print("[EXPERIMENTAL] Phoneme prosody extraction")
+    print(f"Audio directory: {audio_dir}")
+    print(f"Output directory: {output_dir}")
+    print()
+
+    mfa_available, mfa_version = check_mfa_available()
+    if not mfa_available:
+        print(f"ERROR: MFA not available: {mfa_version}")
+        print()
+        print("Install MFA with conda:")
+        print("  conda install -c conda-forge montreal-forced-aligner")
+        return
+
+    print(f"MFA version: {mfa_version}")
+
+    models_ok, models_msg = check_mfa_models_available()
+    if not models_ok:
+        print(f"ERROR: {models_msg}")
+        print()
+        print("Download required models:")
+        print("  mfa model download acoustic english_mfa")
+        print("  mfa model download dictionary english_us_mfa")
+        return
+
+    print("MFA models: OK")
+
+    if args.check_only:
+        print()
+        print("Check complete. MFA is ready for alignment.")
+        return
+
+    if not audio_dir.exists():
+        print(f"ERROR: Audio directory does not exist: {audio_dir}")
+        return
+
+    audit_path = Path("data/processed/voice_features_v4_audit.parquet")
+    audit_df = None
+    if audit_path.exists():
+        import pandas as pd
+
+        audit_df = pd.read_parquet(audit_path)
+        prosody_recordings = audit_df[
+            (audit_df["taskType"] == "prosody") & (audit_df["pipelineStatus"] == "completed")
+        ]
+        recording_ids = set(prosody_recordings["recordingId"].tolist())
+        print(f"Found {len(recording_ids)} prosody recordings in audit")
+    else:
+        recording_ids = None
+        print("No audit file found, will process all WAV files in audio directory")
+
+    if args.recording_ids:
+        recording_ids = set(args.recording_ids)
+        print(f"Filtering to {len(recording_ids)} specified recordings")
+
+    wav_files = list(audio_dir.glob("*.wav"))
+    if recording_ids is not None:
+        wav_files = [f for f in wav_files if f.stem in recording_ids]
+
+    if args.limit:
+        wav_files = wav_files[: args.limit]
+
+    print(f"Processing {len(wav_files)} recordings")
+    print()
+
+    recordings: list[RecordingMetadata] = []
+    for wav_path in wav_files:
+        recording_id = wav_path.stem
+        user_id = "unknown"
+        recorded_date = "unknown"
+
+        if audit_df is not None:
+            row = audit_df[audit_df["recordingId"] == recording_id]
+            if not row.empty:
+                user_id = str(row.iloc[0].get("userId", "unknown"))
+                rd = row.iloc[0].get("recordedDate")
+                if rd is not None:
+                    recorded_date = str(rd)[:10] if hasattr(rd, "__str__") else str(rd)
+
+        recordings.append(
+            RecordingMetadata(
+                recording_id=recording_id,
+                user_id=user_id,
+                recorded_date=recorded_date,
+                task_type="prosody",
+                audio_path=wav_path,
+            )
+        )
+
+    parquet_path, success_count, failure_count = process_batch(
+        recordings=recordings,
+        output_dir=output_dir,
+    )
+
+    print()
+    print(f"Extraction complete: {success_count} succeeded, {failure_count} failed")
+    print(f"Feature parquet: {parquet_path}")
+    print(f"TextGrid files: {output_dir / 'alignments'}")
+
+
+if __name__ == "__main__":
+    main()

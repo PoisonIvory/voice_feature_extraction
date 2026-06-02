@@ -1,5 +1,41 @@
 """Isolated prosody phoneme experiment primitives."""
 
+from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
+    ALIGNMENT_ENGINE_MFA,
+    RAINBOW_PASSAGE_TEXT,
+    AlignmentResult,
+    WordSegment,
+    align_batch,
+    align_recording,
+    check_mfa_available,
+    check_mfa_models_available,
+    parse_textgrid,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality import (
+    QUALITY_GOOD,
+    QUALITY_MARGINAL,
+    QUALITY_POOR,
+    AlignmentQuality,
+    CalibrationSample,
+    QualityThresholds,
+    SegmentQualityAssessment,
+    assess_segment_quality,
+    export_calibration_samples_csv,
+    select_calibration_samples,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.biomarkers import (
+    MIN_OBSERVATIONS_FOR_CONTRAST,
+    MIN_OBSERVATIONS_FOR_RELIABLE_MEAN,
+    DailyClassAggregate,
+    DailyPhonemeAggregate,
+    NasalOralContrast,
+    PhonemeTrajectory,
+    compute_daily_class_aggregates,
+    compute_daily_nasal_oral_contrasts,
+    compute_daily_phoneme_aggregates,
+    compute_phoneme_trajectories,
+    summarize_phoneme_occurrence_stats,
+)
 from speech_feature_extraction.phoneme_prosody_experiment.schema import (
     PHONEME_PROSODY_ALIGNMENT_FIELDS,
     PHONEME_PROSODY_BOUNDARY_FIELDS,
@@ -20,6 +56,26 @@ from speech_feature_extraction.phoneme_prosody_experiment.rainbow_profile import
     build_rainbow_template,
     summarize_alignment_against_template,
 )
+from speech_feature_extraction.phoneme_prosody_experiment.rainbow_inventory import (
+    RAINBOW_PASSAGE_ARPABET_SEQUENCE,
+    RAINBOW_PASSAGE_EXPECTED_INVENTORY,
+    RAINBOW_PASSAGE_NASAL_COUNT,
+    RAINBOW_PASSAGE_PHARYNGEAL_COUNT,
+    RAINBOW_PASSAGE_PHONE_COUNTS,
+    RAINBOW_PASSAGE_TOTAL_PHONES,
+    get_expected_phone_count,
+    validate_phone_coverage,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.segment_features import (
+    DEFAULT_TRIM_POLICY_MS,
+    MIN_ANALYSIS_DURATION_SEC,
+    MIN_FRAMES_FOR_VARIANCE,
+    SegmentBoundaries,
+    SegmentFeatureExtractor,
+    SegmentFeatures,
+    compute_segment_boundaries,
+    slice_audio_segment,
+)
 from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
     NASAL_PHONEMES,
     PHARYNGEAL_ENGAGED_PHONEMES,
@@ -30,6 +86,41 @@ from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
 )
 
 __all__ = [
+    # Alignment
+    "ALIGNMENT_ENGINE_MFA",
+    "AlignedPhonemeSegment",
+    "AlignmentResult",
+    "RAINBOW_PASSAGE_TEXT",
+    "WordSegment",
+    "align_batch",
+    "align_recording",
+    "check_mfa_available",
+    "check_mfa_models_available",
+    "parse_textgrid",
+    # Alignment Quality
+    "QUALITY_GOOD",
+    "QUALITY_MARGINAL",
+    "QUALITY_POOR",
+    "AlignmentQuality",
+    "CalibrationSample",
+    "QualityThresholds",
+    "SegmentQualityAssessment",
+    "assess_segment_quality",
+    "export_calibration_samples_csv",
+    "select_calibration_samples",
+    # Biomarkers
+    "MIN_OBSERVATIONS_FOR_CONTRAST",
+    "MIN_OBSERVATIONS_FOR_RELIABLE_MEAN",
+    "DailyClassAggregate",
+    "DailyPhonemeAggregate",
+    "NasalOralContrast",
+    "PhonemeTrajectory",
+    "compute_daily_class_aggregates",
+    "compute_daily_nasal_oral_contrasts",
+    "compute_daily_phoneme_aggregates",
+    "compute_phoneme_trajectories",
+    "summarize_phoneme_occurrence_stats",
+    # Schema
     "PHONEME_PROSODY_ALIGNMENT_FIELDS",
     "PHONEME_PROSODY_BOUNDARY_FIELDS",
     "PHONEME_PROSODY_CONTEXT_FIELDS",
@@ -39,17 +130,36 @@ __all__ = [
     "PHONEME_PROSODY_LINEAGE_FIELDS",
     "PHONEME_PROSODY_RAINBOW_PROFILE_FIELDS",
     "PHONEME_PROSODY_REQUIRED_FIELDS",
-    "AlignedPhonemeSegment",
-    "NASAL_PHONEMES",
-    "PHARYNGEAL_ENGAGED_PHONEMES",
-    "PRIMARY_CLASS_TO_PHONEMES",
+    # Rainbow Profile
     "RainbowAlignmentSummary",
     "RainbowOccurrenceAlignment",
     "RainbowPassageTemplate",
     "RainbowPhonemeOccurrence",
-    "VOICELESS_FRICATION_PHONEMES",
     "build_rainbow_template",
+    "summarize_alignment_against_template",
+    # Rainbow Inventory
+    "RAINBOW_PASSAGE_ARPABET_SEQUENCE",
+    "RAINBOW_PASSAGE_EXPECTED_INVENTORY",
+    "RAINBOW_PASSAGE_NASAL_COUNT",
+    "RAINBOW_PASSAGE_PHARYNGEAL_COUNT",
+    "RAINBOW_PASSAGE_PHONE_COUNTS",
+    "RAINBOW_PASSAGE_TOTAL_PHONES",
+    "get_expected_phone_count",
+    "validate_phone_coverage",
+    # Segment Features
+    "DEFAULT_TRIM_POLICY_MS",
+    "MIN_ANALYSIS_DURATION_SEC",
+    "MIN_FRAMES_FOR_VARIANCE",
+    "SegmentBoundaries",
+    "SegmentFeatureExtractor",
+    "SegmentFeatures",
+    "compute_segment_boundaries",
+    "slice_audio_segment",
+    # Taxonomy
+    "NASAL_PHONEMES",
+    "PHARYNGEAL_ENGAGED_PHONEMES",
+    "PRIMARY_CLASS_TO_PHONEMES",
+    "VOICELESS_FRICATION_PHONEMES",
     "classify_phoneme",
     "derive_coarticulation_context",
-    "summarize_alignment_against_template",
 ]
