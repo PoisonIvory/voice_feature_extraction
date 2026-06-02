@@ -96,6 +96,7 @@ class PhonemeRowData:
     qc_segment_reason: str
     qc_numFrames: int
     qc_minFramesRequired: int
+    qc_label_canonical: bool
 
 
 @dataclass
@@ -223,6 +224,7 @@ def process_recording(
             qc_segment_reason=features.qc_segment_reason,
             qc_numFrames=features.qc_num_frames,
             qc_minFramesRequired=features.qc_min_frames_required,
+            qc_label_canonical=classification.is_canonical,
         )
         rows.append(row)
 
@@ -340,7 +342,14 @@ def _occurrence_key(
     index: int,
     all_segments: list[AlignedPhonemeSegment],
 ) -> str:
-    """Build occurrence key for a segment."""
+    """Build occurrence key for a segment.
+
+    Deferred-template note: this counts occurrences over the raw, unfiltered
+    segment order, whereas summarize_alignment_against_template counts over
+    normalized, filtered, time-sorted segments. These two orderings must be
+    reconciled before the rainbow template is wired into process_batch, or
+    occurrence indices will not line up.
+    """
     normalized = normalize_phoneme_label(phoneme_label) or phoneme_label
     count = 1
     for i in range(index):

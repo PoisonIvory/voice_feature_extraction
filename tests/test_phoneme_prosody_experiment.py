@@ -21,10 +21,14 @@ from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality impo
     assess_segment_quality,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.rainbow_inventory import (
+    PROSODY_CANONICAL_ARPABET_SEQUENCE,
+    PROSODY_CANONICAL_EXPECTED_INVENTORY,
+    PROSODY_CANONICAL_NASAL_COUNT,
+    PROSODY_CANONICAL_PHONE_COUNTS,
+    PROSODY_CANONICAL_TOTAL_PHONES,
     RAINBOW_PASSAGE_ARPABET_SEQUENCE,
     RAINBOW_PASSAGE_EXPECTED_INVENTORY,
     RAINBOW_PASSAGE_NASAL_COUNT,
-    RAINBOW_PASSAGE_PHONE_COUNTS,
     RAINBOW_PASSAGE_TOTAL_PHONES,
     get_expected_phone_count,
     validate_phone_coverage,
@@ -54,6 +58,7 @@ from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
     PHONEME_CLASS_VOICELESS_FRICATION,
     classify_phoneme,
     derive_coarticulation_context,
+    is_canonical_phoneme,
     normalize_phoneme_label,
 )
 
@@ -71,6 +76,31 @@ def test_normalize_phoneme_label_maps_common_mfa_ipa_symbols() -> None:
     assert normalize_phoneme_label("ɫ̩") == "L"
     assert normalize_phoneme_label("ɲ") == "N"
     assert normalize_phoneme_label("ʉː") == "UW"
+
+
+def test_normalize_phoneme_label_covers_previously_leaking_ipa_symbols() -> None:
+    assert normalize_phoneme_label("ɒ") == "AO"
+    assert normalize_phoneme_label("ʎ") == "L"
+    assert normalize_phoneme_label("ɡ") == "G"  # script g U+0261
+    assert normalize_phoneme_label("ɔj") == "OY"
+
+
+def test_normalize_phoneme_label_strips_arpa_stress_digits() -> None:
+    assert normalize_phoneme_label("AH0") == "AH"
+    assert normalize_phoneme_label("EY1") == "EY"
+    assert normalize_phoneme_label("ZH") == "ZH"
+
+
+def test_is_canonical_phoneme_flags_canonical_and_noncanonical() -> None:
+    assert is_canonical_phoneme("AH0") is True
+    assert is_canonical_phoneme("ɒ") is True  # mapped to AO
+    assert is_canonical_phoneme("QQ") is False
+    assert is_canonical_phoneme(None) is False
+
+
+def test_classify_phoneme_marks_canonical_and_noncanonical() -> None:
+    assert classify_phoneme("AH0").is_canonical is True
+    assert classify_phoneme("QQ").is_canonical is False
 
 
 def test_derive_coarticulation_context_handles_directionality() -> None:
@@ -205,9 +235,24 @@ def test_rainbow_nasal_count_is_reasonable() -> None:
     assert RAINBOW_PASSAGE_NASAL_COUNT > 20
 
 
-def test_get_expected_phone_count_returns_correct_value() -> None:
-    assert get_expected_phone_count("AH") == RAINBOW_PASSAGE_PHONE_COUNTS["AH"]
+def test_get_expected_phone_count_uses_canonical_subset() -> None:
+    assert get_expected_phone_count("AH") == PROSODY_CANONICAL_PHONE_COUNTS["AH"]
     assert get_expected_phone_count("NONEXISTENT") == 0
+
+
+def test_prosody_canonical_inventory_covers_sentences_two_and_three() -> None:
+    assert PROSODY_CANONICAL_TOTAL_PHONES == len(PROSODY_CANONICAL_ARPABET_SEQUENCE)
+    assert PROSODY_CANONICAL_TOTAL_PHONES < RAINBOW_PASSAGE_TOTAL_PHONES
+    # Sentence 2 begins "The rainbow is..." -> DH AH R EY N B OW.
+    assert PROSODY_CANONICAL_ARPABET_SEQUENCE[:7] == ("DH", "AH", "R", "EY", "N", "B", "OW")
+    assert PROSODY_CANONICAL_EXPECTED_INVENTORY <= RAINBOW_PASSAGE_EXPECTED_INVENTORY
+    assert PROSODY_CANONICAL_NASAL_COUNT > 0
+
+
+def test_prosody_canonical_inventory_excludes_unrecorded_phones() -> None:
+    # "OY" only appears in the unrecorded remainder ("boiling"), not in 2-3.
+    assert "OY" in RAINBOW_PASSAGE_EXPECTED_INVENTORY
+    assert "OY" not in PROSODY_CANONICAL_EXPECTED_INVENTORY
 
 
 def test_validate_phone_coverage_detects_missing_and_unexpected() -> None:
@@ -367,5 +412,22 @@ def test_summarize_segment_qc_stats_counts_common_failure_reasons() -> None:
     assert summary["qc_ok_rows"] == 1
     assert summary["segment_too_short_rows"] == 1
     assert summary["insufficient_frames_rows"] == 1
+
+
+def test_summarize_segment_qc_stats_counts_non_canonical_labels() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "qc_segment_ok": [True, True, True],
+            "qc_segment_reason": ["ok", "ok", "ok"],
+            "qc_numFrames": [8, 8, 8],
+            "qc_minFramesRequired": [4, 4, 4],
+            "qc_label_canonical": [True, False, False],
+        }
+    )
+    summary = summarize_segment_qc_stats(frame)
+
+    assert summary["non_canonical_label_rows"] == 2
 
 

@@ -39,6 +39,9 @@ PHONEME_PROSODY_BOUNDARY_FIELDS = (
     "analysisDurationSec",
 )
 
+# Deferred for the MVP: process_batch never builds a rainbow template, so
+# these fields are always None. They are retained in the contract so the
+# parquet shape is stable when template matching is enabled later.
 PHONEME_PROSODY_RAINBOW_PROFILE_FIELDS = (
     "rainbowOccurrenceIndex",
     "rainbowExpectedPositionRatio",
@@ -63,6 +66,7 @@ PHONEME_PROSODY_FEATURE_QC_FIELDS = (
     "qc_segment_reason",
     "qc_numFrames",
     "qc_minFramesRequired",
+    "qc_label_canonical",
 )
 
 PHONEME_PROSODY_REQUIRED_FIELDS = (

@@ -6,8 +6,12 @@ files and parsed into our segment data structures.
 
 MFA installation (conda recommended):
     conda install -c conda-forge montreal-forced-aligner
-    mfa model download acoustic english_mfa
-    mfa model download dictionary english_us_mfa
+    mfa model download acoustic english_us_arpa
+    mfa model download dictionary english_us_arpa
+
+The ARPAbet-native models (english_us_arpa) are used so that the aligner
+emits canonical ARPAbet phones directly (e.g. "AH0", "ZH"), avoiding the
+IPA-to-ARPAbet translation that the IPA models (english_mfa) would require.
 """
 
 from __future__ import annotations
@@ -49,8 +53,8 @@ RAINBOW_PASSAGE_MEDIUM_TEXT = f"{RAINBOW_PASSAGE_SENTENCE_ONE} {RAINBOW_PASSAGE_
 RAINBOW_PASSAGE_SHORT_TEXT = RAINBOW_PASSAGE_SENTENCE_ONE
 PROSODY_CANONICAL_TRANSCRIPTION = f"{RAINBOW_PASSAGE_SENTENCE_TWO} {RAINBOW_PASSAGE_SENTENCE_THREE}"
 
-MFA_ACOUSTIC_MODEL = "english_mfa"
-MFA_DICTIONARY = "english_us_mfa"
+MFA_ACOUSTIC_MODEL = "english_us_arpa"
+MFA_DICTIONARY = "english_us_arpa"
 
 ALIGNMENT_ENGINE_MFA = "mfa"
 PHONE_TIER_NAME = "phones"

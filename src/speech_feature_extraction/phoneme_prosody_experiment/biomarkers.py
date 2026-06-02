@@ -183,6 +183,7 @@ def summarize_segment_qc_stats(features_df: "pd.DataFrame") -> dict[str, float |
             "qc_ok_ratio": 0.0,
             "segment_too_short_rows": 0,
             "insufficient_frames_rows": 0,
+            "non_canonical_label_rows": 0,
             "median_qc_num_frames": 0.0,
             "median_qc_min_frames_required": 0.0,
         }
@@ -190,6 +191,11 @@ def summarize_segment_qc_stats(features_df: "pd.DataFrame") -> dict[str, float |
     qc_ok_rows = int(features_df["qc_segment_ok"].sum())
     total_rows = int(len(features_df))
     reason_counts = features_df["qc_segment_reason"].value_counts(dropna=False).to_dict()
+    non_canonical_label_rows = (
+        int((~features_df["qc_label_canonical"].astype(bool)).sum())
+        if "qc_label_canonical" in features_df.columns
+        else 0
+    )
 
     return {
         "total_rows": total_rows,
@@ -197,6 +203,7 @@ def summarize_segment_qc_stats(features_df: "pd.DataFrame") -> dict[str, float |
         "qc_ok_ratio": qc_ok_rows / total_rows if total_rows else 0.0,
         "segment_too_short_rows": int(reason_counts.get("segment_too_short", 0)),
         "insufficient_frames_rows": int(reason_counts.get("insufficient_frames", 0)),
+        "non_canonical_label_rows": non_canonical_label_rows,
         "median_qc_num_frames": float(features_df["qc_numFrames"].median()),
         "median_qc_min_frames_required": float(features_df["qc_minFramesRequired"].median()),
     }

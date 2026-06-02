@@ -173,25 +173,44 @@ classDiagram
 
 ---
 
-### 2. `taxonomy.py` - Phoneme Normalization
+### 2. `taxonomy.py` - Phoneme Normalization and Classification
 
-This file provides a single utility: normalizing phoneme labels from MFA output.
+This file standardizes phone labels and assigns phoneme classes/tags.
 
-MFA outputs phonemes with optional stress markers (e.g., "AH0", "AH1", "AH2"). The `normalize_phoneme_label()` function:
-- Strips stress suffixes
-- Converts to uppercase
-- Ensures consistent phoneme representation
+Alignment uses the ARPAbet-native `english_us_arpa` models, so MFA emits
+ARPAbet phones directly with optional stress markers (e.g., "AH0", "AH1").
+`normalize_phoneme_label()`:
+- Strips stress suffixes and uppercases (e.g., "AH0" -> "AH")
+- Falls back to an IPA-to-ARPAbet map only as a defensive measure if a
+  non-ARPAbet symbol ever appears
 
 ```python
 normalize_phoneme_label("ah1")  # Returns "AH"
 normalize_phoneme_label("M")    # Returns "M"
 ```
 
+Canonical-label guard: `is_canonical_phoneme()` reports whether a normalized
+label is in the ARPAbet inventory. The pipeline records this per row as
+`qc_label_canonical`, so any unmapped phone is surfaced in QC instead of
+silently leaking into `phonemeLabel`.
+
+`classify_phoneme()` also assigns a granular `phonemeClassPrimary`, overlap
+`phonemeClassTags` (nasal-coupled, pharyngeal-engaged, oral-anterior,
+voiceless-frication), and a nasal `coarticulationContext` from the
+neighboring phones.
+
 ---
 
 ### 3. `alignment.py` - MFA Integration
 
-This file wraps the Montreal Forced Aligner (MFA), an external tool that does the heavy lifting of phoneme alignment.
+This file wraps the Montreal Forced Aligner (MFA), an external tool that does the heavy lifting of phoneme alignment. It uses the ARPAbet-native models so phones come out as ARPAbet directly:
+
+```bash
+mfa model download acoustic english_us_arpa
+mfa model download dictionary english_us_arpa
+```
+
+**Recorded transcription scope**: the prosody task records only sentences 2-3 of the Rainbow Passage (`PROSODY_CANONICAL_TRANSCRIPTION`): "The rainbow is a division of white light into many beautiful colors. These take the shape of a long round arch, with its path high above, and its two ends apparently beyond the horizon." Alignment also tries duration-based candidates if the canonical text does not align.
 
 ```mermaid
 flowchart LR
@@ -306,6 +325,8 @@ At phoneme transitions, the acoustic signal is "blended" between sounds. By trim
 
 The Rainbow Passage is standardized, so we know approximately where each phoneme should occur. This module compares observed timing against expected timing.
 
+> Deferred for the MVP: `process_batch` does not build or pass a template, so the `rainbow*` columns are always `None` in the current output. The fields stay in the schema so the parquet shape is stable when template matching is enabled later. Enabling it first requires reconciling the occurrence-key ordering between `_occurrence_key` (raw segment order) and `summarize_alignment_against_template` (normalized, filtered, time-sorted).
+
 ```mermaid
 flowchart LR
     subgraph "Template Building"
@@ -334,22 +355,26 @@ flowchart LR
 
 ### 7. `rainbow_inventory.py` - Expected Phoneme Sequence
 
-This file contains the "ground truth" phoneme sequence for the Rainbow Passage - all 350+ phonemes in order.
+This file contains the "ground truth" ARPAbet phoneme sequences. Because the prosody task records only sentences 2-3, coverage validation uses the canonical subset, while the full passage is kept for reference only.
 
 ```python
-RAINBOW_PASSAGE_ARPABET_SEQUENCE = (
-    # "When the sunlight strikes raindrops in the air,"
-    "W", "EH", "N",
-    "DH", "AH",
-    "S", "AH", "N", "L", "AY", "T",
-    # ... continues for the entire passage
+# Recorded subset (sentences 2-3) -> used by validate_phone_coverage().
+PROSODY_CANONICAL_ARPABET_SEQUENCE = (
+    # "The rainbow is a division of white light..."
+    "DH", "AH", "R", "EY", "N", "B", "OW",
+    # ... continues through "...beyond the horizon."
 )
+
+# Full passage -> reference only.
+RAINBOW_PASSAGE_ARPABET_SEQUENCE = (...)
 ```
 
 **Why this matters**:
 - We can detect missing phonemes (maybe the speaker skipped a word)
 - We can detect extra phonemes (maybe alignment hallucinated sounds)
 - We can count expected occurrences for statistical power calculations
+
+`validate_phone_coverage()` and `get_expected_phone_count()` operate on the recorded sentences-2-3 subset so coverage checks match what was actually spoken.
 
 ---
 
@@ -661,8 +686,10 @@ The modular design allows each component to be tested and improved independently
 
 ### Future Extensions
 
-The current implementation focuses on per-phoneme features. Future versions could add:
+The current implementation already includes per-phoneme features, phoneme
+groupings (`phonemeClassPrimary`/`phonemeClassTags`), and nasal
+`coarticulationContext`. Future versions could add:
 
-- **Phoneme groupings** (nasal, oral, fricative, etc.) for class-level analysis
-- **Coarticulation context** to study how adjacent phonemes affect each other
+- **Rainbow template matching** wired into `process_batch` (currently deferred; `rainbow*` fields are `None`)
 - **Clinical biomarkers** derived from phoneme class contrasts
+- **ComParE_2016** or Praat/Parselmouth as additional feature extractors

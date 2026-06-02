@@ -256,8 +256,8 @@ def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
         print(f"ERROR: {models_msg}")
         print()
         print("Download required models:")
-        print("  mfa model download acoustic english_mfa")
-        print("  mfa model download dictionary english_us_mfa")
+        print("  mfa model download acoustic english_us_arpa")
+        print("  mfa model download dictionary english_us_arpa")
         return
 
     print("MFA models: OK")
@@ -272,27 +272,36 @@ def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
         return
 
     audit_path = Path("data/processed/voice_features_v4_audit.parquet")
-    audit_df = None
-    if audit_path.exists():
-        import pandas as pd
+    if not audit_path.exists():
+        print(f"ERROR: Audit parquet not found: {audit_path}")
+        print("The audit is the source of truth for task type. Run the 'audit' command")
+        print("first so only prosody recordings (not vowel) are processed.")
+        return
 
-        audit_df = pd.read_parquet(audit_path)
-        prosody_recordings = audit_df[
-            (audit_df["taskType"] == "prosody") & (audit_df["pipelineStatus"] == "completed")
-        ]
-        recording_ids = set(prosody_recordings["recordingId"].tolist())
-        print(f"Found {len(recording_ids)} prosody recordings in audit")
-    else:
-        recording_ids = None
-        print("No audit file found, will process all WAV files in audio directory")
+    import pandas as pd
+
+    audit_df = pd.read_parquet(audit_path)
+    prosody_ids = set(audit_df.loc[audit_df["taskType"] == "prosody", "recordingId"].tolist())
+    prosody_completed_ids = set(
+        audit_df.loc[
+            (audit_df["taskType"] == "prosody") & (audit_df["pipelineStatus"] == "completed"),
+            "recordingId",
+        ].tolist()
+    )
+    print(f"Audit has {len(prosody_ids)} prosody recordings ({len(prosody_completed_ids)} completed)")
 
     if args.recording_ids:
-        recording_ids = set(args.recording_ids)
-        print(f"Filtering to {len(recording_ids)} specified recordings")
+        requested = set(args.recording_ids)
+        recording_ids = requested & prosody_ids
+        dropped = requested - prosody_ids
+        if dropped:
+            print(f"Skipping {len(dropped)} requested non-prosody recording(s): {sorted(dropped)}")
+        print(f"Filtering to {len(recording_ids)} specified prosody recordings")
+    else:
+        recording_ids = prosody_completed_ids
 
-    wav_files = list(audio_dir.glob("*.wav"))
-    if recording_ids is not None:
-        wav_files = [f for f in wav_files if f.stem in recording_ids]
+    # Task-type guard: only prosody recordings from the audit are ever processed.
+    wav_files = [f for f in audio_dir.glob("*.wav") if f.stem in recording_ids]
 
     if args.limit:
         wav_files = wav_files[: args.limit]
@@ -306,13 +315,12 @@ def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
         user_id = "unknown"
         recorded_date = "unknown"
 
-        if audit_df is not None:
-            row = audit_df[audit_df["recordingId"] == recording_id]
-            if not row.empty:
-                user_id = str(row.iloc[0].get("userId", "unknown"))
-                rd = row.iloc[0].get("recordedDate")
-                if rd is not None:
-                    recorded_date = str(rd)[:10] if hasattr(rd, "__str__") else str(rd)
+        row = audit_df[audit_df["recordingId"] == recording_id]
+        if not row.empty:
+            user_id = str(row.iloc[0].get("userId", "unknown"))
+            rd = row.iloc[0].get("recordedDate")
+            if rd is not None:
+                recorded_date = str(rd)[:10] if hasattr(rd, "__str__") else str(rd)
 
         recordings.append(
             RecordingMetadata(
@@ -346,6 +354,7 @@ def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
             f"({qc_summary['qc_ok_ratio']:.1%}), "
             f"segment_too_short={qc_summary['segment_too_short_rows']}, "
             f"insufficient_frames={qc_summary['insufficient_frames_rows']}, "
+            f"non_canonical_labels={qc_summary['non_canonical_label_rows']}, "
             f"median_frames={qc_summary['median_qc_num_frames']:.1f}, "
             f"median_min_required={qc_summary['median_qc_min_frames_required']:.1f}"
         )

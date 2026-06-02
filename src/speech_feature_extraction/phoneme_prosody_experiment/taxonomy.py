@@ -60,6 +60,7 @@ IPA_TO_ARPABET = {
     "aj": "AY",
     "aw": "AW",
     "b": "B",
+    "c": "K",
     "d": "D",
     "dʒ": "JH",
     "d͡ʒ": "JH",
@@ -75,6 +76,7 @@ IPA_TO_ARPABET = {
     "m": "M",
     "n": "N",
     "o": "OW",
+    "oj": "OY",
     "ow": "OW",
     "p": "P",
     "r": "R",
@@ -90,11 +92,15 @@ IPA_TO_ARPABET = {
     "ð": "DH",
     "ŋ": "NG",
     "ɑ": "AA",
+    "ɒ": "AO",
     "ɔ": "AO",
+    "ɔj": "OY",
     "ə": "AH",
     "ɚ": "ER",
     "ɝ": "ER",
     "ɐ": "AH",
+    "ɟ": "G",
+    "ɡ": "G",
     "ɫ": "L",
     "ɲ": "N",
     "ɾ": "D",
@@ -105,6 +111,7 @@ IPA_TO_ARPABET = {
     "ʉː": "UW",
     "ʃ": "SH",
     "ʊ": "UH",
+    "ʎ": "L",
     "ʒ": "ZH",
     "θ": "TH",
 }
@@ -161,6 +168,7 @@ class PhonemeClassification:
     phoneme_class_tags: tuple[str, ...]
     coarticulation_context: str
     is_adjacent_to_nasal: bool
+    is_canonical: bool
 
 
 def normalize_phoneme_label(label: str | None) -> str | None:
@@ -174,7 +182,8 @@ def normalize_phoneme_label(label: str | None) -> str | None:
     if canonical in ARPABET_PHONEMES:
         return canonical
 
-    # MFA english_us_mfa often emits IPA-like symbols with diacritics.
+    # Defensive fallback: the ARPAbet-native english_us_arpa model emits
+    # ARPAbet directly, but if an IPA-style symbol ever appears we map it.
     ipa_key = _strip_diacritics(stripped).lower()
     mapped = IPA_TO_ARPABET.get(ipa_key)
     if mapped:
@@ -182,6 +191,11 @@ def normalize_phoneme_label(label: str | None) -> str | None:
 
     fallback = stripped.upper()
     return fallback or None
+
+
+def is_canonical_phoneme(label: str | None) -> bool:
+    """Return True if the normalized label is a canonical ARPAbet phone."""
+    return normalize_phoneme_label(label) in ARPABET_PHONEMES
 
 
 def _strip_diacritics(value: str) -> str:
@@ -222,6 +236,7 @@ def classify_phoneme(
             phoneme_class_tags=(PHONEME_CLASS_UNKNOWN,),
             coarticulation_context=COARTICULATION_NONE,
             is_adjacent_to_nasal=False,
+            is_canonical=False,
         )
 
     coarticulation_context = derive_coarticulation_context(prev_label, next_label)
@@ -245,4 +260,5 @@ def classify_phoneme(
         phoneme_class_tags=tuple(dict.fromkeys(tags)),
         coarticulation_context=coarticulation_context,
         is_adjacent_to_nasal=is_adjacent_to_nasal,
+        is_canonical=phone in ARPABET_PHONEMES,
     )

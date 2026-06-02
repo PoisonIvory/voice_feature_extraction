@@ -54,6 +54,12 @@ from speech_feature_extraction.phoneme_prosody_experiment.rainbow_profile import
     summarize_alignment_against_template,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.rainbow_inventory import (
+    PROSODY_CANONICAL_ARPABET_SEQUENCE,
+    PROSODY_CANONICAL_EXPECTED_INVENTORY,
+    PROSODY_CANONICAL_NASAL_COUNT,
+    PROSODY_CANONICAL_PHARYNGEAL_COUNT,
+    PROSODY_CANONICAL_PHONE_COUNTS,
+    PROSODY_CANONICAL_TOTAL_PHONES,
     RAINBOW_PASSAGE_ARPABET_SEQUENCE,
     RAINBOW_PASSAGE_EXPECTED_INVENTORY,
     RAINBOW_PASSAGE_NASAL_COUNT,
@@ -98,6 +104,7 @@ from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
     PhonemeClassification,
     classify_phoneme,
     derive_coarticulation_context,
+    is_canonical_phoneme,
     normalize_phoneme_label,
 )
 
@@ -151,6 +158,12 @@ __all__ = [
     "build_rainbow_template",
     "summarize_alignment_against_template",
     # Rainbow Inventory
+    "PROSODY_CANONICAL_ARPABET_SEQUENCE",
+    "PROSODY_CANONICAL_EXPECTED_INVENTORY",
+    "PROSODY_CANONICAL_NASAL_COUNT",
+    "PROSODY_CANONICAL_PHARYNGEAL_COUNT",
+    "PROSODY_CANONICAL_PHONE_COUNTS",
+    "PROSODY_CANONICAL_TOTAL_PHONES",
     "RAINBOW_PASSAGE_ARPABET_SEQUENCE",
     "RAINBOW_PASSAGE_EXPECTED_INVENTORY",
     "RAINBOW_PASSAGE_NASAL_COUNT",
@@ -187,6 +200,7 @@ __all__ = [
     "PhonemeClassification",
     "classify_phoneme",
     "derive_coarticulation_context",
+    "is_canonical_phoneme",
     "normalize_phoneme_label",
     # Pipeline
     "PhonemeRowData",
