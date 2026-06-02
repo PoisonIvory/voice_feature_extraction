@@ -1,5 +1,8 @@
 from pathlib import Path
 
+import pytest
+
+from speech_feature_extraction.constants import ENFORCED_USER_ID
 from speech_feature_extraction.opensmile_egemaps import LldQcMetrics
 from speech_feature_extraction.pipeline import run_extract
 
@@ -69,6 +72,9 @@ def _settings(tmp_path: Path) -> _Settings:
     return _Settings(data_dir=tmp_path / "data")
 
 
+TEST_USER_ID = ENFORCED_USER_ID
+
+
 def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
     tmp_path: Path,
     monkeypatch,
@@ -78,7 +84,7 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
         {"recordingId": "already_done", "audioHash": "existing_hash"},
         {
             "recordingId": "to_process",
-            "userId": "u1",
+            "userId": TEST_USER_ID,
             "recordedAt": "2026-06-01T08:00:00+00:00",
             "taskType": "vowel",
             "audioHash": "old_hash",
@@ -101,7 +107,7 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
             "recordingId": "to_process",
             "pipelineStatus": "pending",
             "taskType": "vowel",
-            "userId": "u1",
+            "userId": TEST_USER_ID,
             "recordedAt": "2026-06-01T10:00:00+00:00",
             "qc_warning_codes": [],
             "skipReason": None,
@@ -110,7 +116,7 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
             "recordingId": "not_processed_due_to_limit",
             "pipelineStatus": "pending",
             "taskType": "prosody",
-            "userId": "u1",
+            "userId": TEST_USER_ID,
             "recordedAt": "2026-06-01T11:00:00+00:00",
             "qc_warning_codes": [],
             "skipReason": None,
@@ -119,7 +125,7 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
             "recordingId": "skipped_row",
             "pipelineStatus": "skipped",
             "taskType": None,
-            "userId": "u1",
+            "userId": TEST_USER_ID,
             "recordedAt": "2026-06-01T12:00:00+00:00",
             "qc_warning_codes": ["metadata_missing"],
             "skipReason": "metadata_error",
@@ -153,7 +159,7 @@ def test_run_extract_upserts_recordings_and_keeps_unprocessed_manifest_rows(
     daily_rows = parquet_store["voice_features_v4_daily.parquet"]
     assert len(daily_rows) == 1
     daily = daily_rows[0]
-    assert daily["userId"] == "u1"
+    assert daily["userId"] == TEST_USER_ID
     assert daily["dayUtc"] == "2026-06-01"
     assert daily["vowel_egemaps_feature_a"] == 1.23
     assert daily["prosody_egemaps_feature_a"] is None
@@ -186,7 +192,7 @@ def test_run_extract_writes_structured_failure_stage(
             "recordingId": "to_fail",
             "pipelineStatus": "pending",
             "taskType": "vowel",
-            "userId": "u1",
+            "userId": TEST_USER_ID,
             "recordedAt": "2026-06-01T10:00:00+00:00",
             "qc_warning_codes": [],
             "skipReason": None,
@@ -220,3 +226,9 @@ def test_run_extract_writes_structured_failure_stage(
     assert row["pipelineStatus"] == "failed"
     assert row["qc_failure_stage"] == "opensmile_extract"
     assert row["featureSet"] == "opensmile.FeatureSet.eGeMAPSv02"
+
+
+def test_run_extract_rejects_non_enforced_user_id(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    with pytest.raises(ValueError, match="Only userId"):
+        run_extract(settings=settings, user_id="different-user")

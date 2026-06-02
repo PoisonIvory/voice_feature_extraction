@@ -5,6 +5,7 @@ EXTRACTOR_VERSION = "v4.0-daily-task-separated-median"
 APPWRITE_DATABASE_ID = "period_tracker_db"
 APPWRITE_VOICE_RECORDINGS_COLLECTION_ID = "voice_recordings"
 APPWRITE_AUDIO_BUCKET_ID = "audio"
+ENFORCED_USER_ID = "6928d5ab0018cac7ae42"
 
 IN_SCOPE_TASK_TYPES = {"vowel", "prosody"}
 OPENSMILE_EGEMAPS_PREFIX = "egemaps_"

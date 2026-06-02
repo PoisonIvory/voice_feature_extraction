@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 
 from speech_feature_extraction.config import load_settings, load_snapshot_publish_settings
+from speech_feature_extraction.constants import ENFORCED_USER_ID
 from speech_feature_extraction.pipeline import run_audit, run_extract
 from speech_feature_extraction.snapshot.contract_schema import (
     DEFAULT_AUDIT_FILENAME,
@@ -32,13 +33,19 @@ def main() -> None:
 
     subparsers = parser.add_subparsers(dest="command", required=True)
     audit_parser = subparsers.add_parser("audit", help="List Appwrite WAVs and write the audit parquet.")
-    audit_parser.add_argument("--user-id", help="Filter to a single user ID.")
+    audit_parser.add_argument(
+        "--user-id",
+        help=f"Required user ID. Must be {ENFORCED_USER_ID}.",
+    )
 
     extract_parser = subparsers.add_parser(
         "extract",
         help="Download in-scope WAVs, extract features, and build daily task-separated output.",
     )
-    extract_parser.add_argument("--user-id", help="Filter to a single user ID.")
+    extract_parser.add_argument(
+        "--user-id",
+        help=f"Required user ID. Must be {ENFORCED_USER_ID}.",
+    )
     extract_parser.add_argument("--limit", type=int, help="Maximum number of pending recordings to process.")
     extract_parser.add_argument(
         "--force-download",
@@ -87,18 +94,20 @@ def main() -> None:
     LOGGER.info("Starting command=%s", args.command)
     if args.command == "audit":
         settings = load_settings(args.env_file)
-        audit_path = run_audit(settings, user_id=args.user_id)
+        scoped_user_id = _resolve_cli_user_id(parser, args.user_id)
+        audit_path = run_audit(settings, user_id=scoped_user_id)
         LOGGER.info("Audit finished: %s", audit_path)
         print(f"Wrote audit parquet: {audit_path}")
         return
 
     if args.command == "extract":
         settings = load_settings(args.env_file)
+        scoped_user_id = _resolve_cli_user_id(parser, args.user_id)
         daily_path, audit_path = run_extract(
             settings,
             limit=args.limit,
             force_download=args.force_download,
-            user_id=args.user_id,
+            user_id=scoped_user_id,
         )
         LOGGER.info("Extract finished: daily=%s audit=%s", daily_path, audit_path)
         print(f"Wrote daily parquet: {daily_path}")
@@ -146,3 +155,11 @@ def _configure_logging(log_level: str) -> None:
         level=getattr(logging, log_level, logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s - %(message)s",
     )
+
+
+def _resolve_cli_user_id(parser: argparse.ArgumentParser, requested_user_id: str | None) -> str:
+    if requested_user_id is None:
+        return ENFORCED_USER_ID
+    if requested_user_id != ENFORCED_USER_ID:
+        parser.error(f"--user-id must be {ENFORCED_USER_ID}")
+    return requested_user_id

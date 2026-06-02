@@ -17,6 +17,7 @@ from speech_feature_extraction.config import Settings
 from speech_feature_extraction.constants import (
     AUDIT_PARQUET,
     DAILY_FEATURES_PARQUET,
+    ENFORCED_USER_ID,
     EXTRACTOR_VERSION,
     RECORDINGS_STAGING_PARQUET,
 )
@@ -30,12 +31,12 @@ LOGGER = logging.getLogger(__name__)
 
 
 def run_audit(settings: Settings, user_id: str | None = None) -> Path:
-    LOGGER.info("Audit run started (user_id=%s)", user_id)
+    scoped_user_id = _resolve_scoped_user_id(user_id)
+    LOGGER.info("Audit run started (user_id=%s)", scoped_user_id)
     gateway = AppwriteGateway(settings)
     manifest_rows = _load_manifest_rows(gateway)
-    if user_id:
-        manifest_rows = [row for row in manifest_rows if row.get("userId") == user_id]
-        LOGGER.info("Filtered to user_id=%s: %d rows", user_id, len(manifest_rows))
+    manifest_rows = [row for row in manifest_rows if row.get("userId") == scoped_user_id]
+    LOGGER.info("Filtered to user_id=%s: %d rows", scoped_user_id, len(manifest_rows))
     LOGGER.info("Audit manifest rows: %d", len(manifest_rows))
     audit_path = settings.processed_dir / AUDIT_PARQUET
     output = write_rows_parquet(manifest_rows, audit_path)
@@ -49,12 +50,17 @@ def run_extract(
     force_download: bool = False,
     user_id: str | None = None,
 ) -> tuple[Path, Path]:
-    LOGGER.info("Extract run started (limit=%s force_download=%s user_id=%s)", limit, force_download, user_id)
+    scoped_user_id = _resolve_scoped_user_id(user_id)
+    LOGGER.info(
+        "Extract run started (limit=%s force_download=%s user_id=%s)",
+        limit,
+        force_download,
+        scoped_user_id,
+    )
     gateway = AppwriteGateway(settings)
     manifest_rows = _load_manifest_rows(gateway)
-    if user_id:
-        manifest_rows = [row for row in manifest_rows if row.get("userId") == user_id]
-        LOGGER.info("Filtered to user_id=%s: %d rows", user_id, len(manifest_rows))
+    manifest_rows = [row for row in manifest_rows if row.get("userId") == scoped_user_id]
+    LOGGER.info("Filtered to user_id=%s: %d rows", scoped_user_id, len(manifest_rows))
     extractor = OpenSmileEgemapsExtractor()
     staging_existing = read_rows_parquet(settings.processed_dir / RECORDINGS_STAGING_PARQUET)
     recording_rows: list[dict[str, Any]] = []
@@ -207,6 +213,16 @@ def _load_manifest_rows(gateway: AppwriteGateway) -> list[dict[str, Any]]:
         len(voice_recordings),
     )
     return build_manifest_rows(storage_files, voice_recordings)
+
+
+def _resolve_scoped_user_id(user_id: str | None) -> str:
+    if user_id is None:
+        return ENFORCED_USER_ID
+    if user_id != ENFORCED_USER_ID:
+        raise ValueError(
+            f"Only userId {ENFORCED_USER_ID} is allowed; received {user_id}."
+        )
+    return user_id
 
 
 def _cached_audio_path(raw_audio_dir: Path, recording_id: str) -> Path:
