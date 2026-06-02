@@ -135,15 +135,24 @@ class HubertFeatureExtractor:
         return TARGET_SAMPLE_RATE_HZ
 
     def load_waveform(self, audio_path: Path) -> np.ndarray:
-        """Load a WAV as mono 16 kHz float32 samples."""
-        waveform, sample_rate = self._torchaudio.load(str(audio_path))
-        if waveform.shape[0] > 1:
-            waveform = waveform.mean(dim=0, keepdim=True)
+        """Load a WAV as mono 16 kHz float32 samples.
+
+        Audio I/O uses soundfile (native WAV, no codec backend) and resampling
+        uses torchaudio's codec-free functional resampler, so the heavy
+        ``torchaudio.load`` / TorchCodec path is avoided.
+        """
+        import soundfile
+
+        waveform, sample_rate = soundfile.read(str(audio_path), dtype="float32", always_2d=False)
+        if waveform.ndim > 1:
+            waveform = waveform.mean(axis=1)
         if sample_rate != TARGET_SAMPLE_RATE_HZ:
-            waveform = self._torchaudio.functional.resample(
-                waveform, sample_rate, TARGET_SAMPLE_RATE_HZ
+            tensor = self._torch.from_numpy(np.ascontiguousarray(waveform))
+            tensor = self._torchaudio.functional.resample(
+                tensor, sample_rate, TARGET_SAMPLE_RATE_HZ
             )
-        return waveform.squeeze(0).to(self._torch.float32).cpu().numpy()
+            waveform = tensor.cpu().numpy()
+        return np.ascontiguousarray(waveform, dtype=np.float32)
 
     def extract_frame_embeddings(self, waveform: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """Run frozen HuBERT once over a waveform.

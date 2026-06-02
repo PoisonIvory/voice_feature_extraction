@@ -28,6 +28,7 @@ hubert = [
   "torch>=2.0",
   "torchaudio>=2.0",
   "transformers>=4.30",
+  "soundfile>=0.12",
 ]
 
 [project.scripts]
