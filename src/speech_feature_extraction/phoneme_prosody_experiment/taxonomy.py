@@ -1,8 +1,4 @@
-"""Prosody phoneme taxonomy and coarticulation helpers.
-
-This module is intentionally isolated for the experiment namespace so class
-definitions can evolve without affecting canonical extraction artifacts.
-"""
+"""Prosody phoneme taxonomy and coarticulation helpers."""
 
 from __future__ import annotations
 
@@ -93,7 +89,7 @@ def classify_phoneme(
     prev_label: str | None = None,
     next_label: str | None = None,
 ) -> PhonemeClassification:
-    """Assign primary and overlap classes plus coarticulation metadata."""
+    """Assign granular primary phone plus overlap class tags."""
     phone = normalize_phoneme_label(phoneme_label)
     if phone is None:
         return PhonemeClassification(
@@ -117,22 +113,11 @@ def classify_phoneme(
         tags.append(PHONEME_CLASS_ORAL_ANTERIOR)
     if phone in VOICELESS_FRICATION_PHONEMES:
         tags.append(PHONEME_CLASS_VOICELESS_FRICATION)
-    if not tags:
-        tags.append(PHONEME_CLASS_UNKNOWN)
-
-    # Preserve an explicit primary ordering for deterministic downstream grouping.
-    priority = (
-        PHONEME_CLASS_NASAL_COUPLED,
-        PHONEME_CLASS_PHARYNGEAL_ENGAGED,
-        PHONEME_CLASS_VOICELESS_FRICATION,
-        PHONEME_CLASS_ORAL_ANTERIOR,
-        PHONEME_CLASS_UNKNOWN,
-    )
-    primary = next(label for label in priority if label in tags)
 
     return PhonemeClassification(
         phoneme_label=phone,
-        phoneme_class_primary=primary,
+        # Granular classification follows aligner/dictionary ARPAbet phones.
+        phoneme_class_primary=phone,
         phoneme_class_tags=tuple(dict.fromkeys(tags)),
         coarticulation_context=coarticulation_context,
         is_adjacent_to_nasal=is_adjacent_to_nasal,

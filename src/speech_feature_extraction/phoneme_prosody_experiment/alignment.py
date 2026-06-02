@@ -13,9 +13,12 @@ MFA installation (conda recommended):
 from __future__ import annotations
 
 import logging
+import os
+import shlex
 import shutil
 import subprocess
 import tempfile
+import wave
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -26,7 +29,21 @@ from speech_feature_extraction.phoneme_prosody_experiment.rainbow_profile import
 
 LOGGER = logging.getLogger(__name__)
 
-RAINBOW_PASSAGE_TEXT = """When the sunlight strikes raindrops in the air, they act as a prism and form a rainbow. The rainbow is a division of white light into many beautiful colors. These take the shape of a long round arch, with its path high above, and its two ends apparently beyond the horizon. There is, according to legend, a boiling pot of gold at one end. People look, but no one ever finds it. When a man looks for something beyond his reach, his friends say he is looking for the pot of gold at the end of the rainbow."""
+RAINBOW_PASSAGE_SENTENCE_ONE = (
+    "When the sunlight strikes raindrops in the air, they act as a prism and form a rainbow."
+)
+RAINBOW_PASSAGE_SENTENCE_TWO = (
+    "The rainbow is a division of white light into many beautiful colors."
+)
+RAINBOW_PASSAGE_TEXT = (
+    f"{RAINBOW_PASSAGE_SENTENCE_ONE} {RAINBOW_PASSAGE_SENTENCE_TWO} "
+    "These take the shape of a long round arch, with its path high above, and its two ends "
+    "apparently beyond the horizon. There is, according to legend, a boiling pot of gold at one end. "
+    "People look, but no one ever finds it. When a man looks for something beyond his reach, his "
+    "friends say he is looking for the pot of gold at the end of the rainbow."
+)
+RAINBOW_PASSAGE_MEDIUM_TEXT = f"{RAINBOW_PASSAGE_SENTENCE_ONE} {RAINBOW_PASSAGE_SENTENCE_TWO}"
+RAINBOW_PASSAGE_SHORT_TEXT = RAINBOW_PASSAGE_SENTENCE_ONE
 
 MFA_ACOUSTIC_MODEL = "english_mfa"
 MFA_DICTIONARY = "english_us_mfa"
@@ -63,14 +80,16 @@ class WordSegment:
 def check_mfa_available() -> tuple[bool, str]:
     """Check if MFA is installed and models are available."""
     try:
+        command = [*_resolve_mfa_base_command(), "version"]
         result = subprocess.run(
-            ["mfa", "version"],
+            command,
             capture_output=True,
             text=True,
             timeout=30,
         )
         if result.returncode != 0:
-            return False, "MFA command failed"
+            error_text = (result.stderr or result.stdout or "MFA command failed").strip()
+            return False, error_text
         version = result.stdout.strip()
         return True, version
     except FileNotFoundError:
@@ -82,21 +101,26 @@ def check_mfa_available() -> tuple[bool, str]:
 def check_mfa_models_available() -> tuple[bool, str]:
     """Check if required MFA models are downloaded."""
     try:
+        base_command = _resolve_mfa_base_command()
         result = subprocess.run(
-            ["mfa", "model", "list", "acoustic"],
+            [*base_command, "model", "list", "acoustic"],
             capture_output=True,
             text=True,
             timeout=30,
         )
+        if result.returncode != 0:
+            return False, (result.stderr or result.stdout or "Failed listing acoustic models").strip()
         if MFA_ACOUSTIC_MODEL not in result.stdout:
             return False, f"Acoustic model '{MFA_ACOUSTIC_MODEL}' not found. Run: mfa model download acoustic {MFA_ACOUSTIC_MODEL}"
 
         result = subprocess.run(
-            ["mfa", "model", "list", "dictionary"],
+            [*base_command, "model", "list", "dictionary"],
             capture_output=True,
             text=True,
             timeout=30,
         )
+        if result.returncode != 0:
+            return False, (result.stderr or result.stdout or "Failed listing dictionary models").strip()
         if MFA_DICTIONARY not in result.stdout:
             return False, f"Dictionary '{MFA_DICTIONARY}' not found. Run: mfa model download dictionary {MFA_DICTIONARY}"
 
@@ -123,7 +147,9 @@ def align_recording(
         AlignmentResult with parsed phone segments.
     """
     if transcription is None:
-        transcription = RAINBOW_PASSAGE_TEXT
+        transcriptions = _candidate_transcriptions_for_duration(_read_wav_duration_sec(audio_path))
+    else:
+        transcriptions = (transcription,)
 
     available, version_or_error = check_mfa_available()
     if not available:
@@ -161,106 +187,83 @@ def align_recording(
         lab_dest = corpus_path / f"{recording_id}.lab"
 
         shutil.copy2(audio_path, wav_dest)
-        lab_dest.write_text(transcription.strip(), encoding="utf-8")
 
         with tempfile.TemporaryDirectory(prefix="mfa_output_") as mfa_output_dir:
             mfa_output_path = Path(mfa_output_dir)
+            attempt_errors: list[str] = []
 
-            try:
-                result = subprocess.run(
-                    [
-                        "mfa",
-                        "align",
-                        "--clean",
-                        "--single_speaker",
-                        str(corpus_path),
-                        MFA_DICTIONARY,
-                        MFA_ACOUSTIC_MODEL,
-                        str(mfa_output_path),
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=300,
-                )
+            for attempt_idx, transcript_candidate in enumerate(transcriptions, start=1):
+                lab_dest.write_text(transcript_candidate.strip(), encoding="utf-8")
 
-                if result.returncode != 0:
-                    LOGGER.warning(
-                        "MFA alignment failed for %s: %s",
-                        recording_id,
-                        result.stderr,
+                try:
+                    result = subprocess.run(
+                        [
+                            *_resolve_mfa_base_command(),
+                            "align",
+                            "--clean",
+                            "--single_speaker",
+                            str(corpus_path),
+                            MFA_DICTIONARY,
+                            MFA_ACOUSTIC_MODEL,
+                            str(mfa_output_path),
+                        ],
+                        capture_output=True,
+                        text=True,
+                        timeout=300,
                     )
+
+                    if result.returncode != 0:
+                        attempt_errors.append(result.stderr[:500] if result.stderr else "Unknown MFA error")
+                        LOGGER.warning(
+                            "MFA alignment attempt %d failed for %s",
+                            attempt_idx,
+                            recording_id,
+                        )
+                        continue
+
+                    textgrid_src = mfa_output_path / f"{recording_id}.TextGrid"
+                    if not textgrid_src.exists():
+                        possible_files = list(mfa_output_path.rglob("*.TextGrid"))
+                        if possible_files:
+                            textgrid_src = possible_files[0]
+                        else:
+                            attempt_errors.append("No TextGrid output found")
+                            continue
+
+                    textgrid_dest = output_dir / f"{recording_id}.TextGrid"
+                    shutil.copy2(textgrid_src, textgrid_dest)
+
+                    segments, word_segments = parse_textgrid(textgrid_dest)
+
                     return AlignmentResult(
                         recording_id=recording_id,
                         audio_path=audio_path,
-                        textgrid_path=None,
-                        segments=(),
-                        word_segments=(),
+                        textgrid_path=textgrid_dest,
+                        segments=segments,
+                        word_segments=word_segments,
                         alignment_engine=ALIGNMENT_ENGINE_MFA,
                         alignment_version=version_or_error,
-                        success=False,
-                        error_message=result.stderr[:500] if result.stderr else "Unknown MFA error",
+                        success=True,
+                        error_message=None,
                     )
 
-                textgrid_src = mfa_output_path / f"{recording_id}.TextGrid"
-                if not textgrid_src.exists():
-                    possible_files = list(mfa_output_path.rglob("*.TextGrid"))
-                    if possible_files:
-                        textgrid_src = possible_files[0]
-                    else:
-                        return AlignmentResult(
-                            recording_id=recording_id,
-                            audio_path=audio_path,
-                            textgrid_path=None,
-                            segments=(),
-                            word_segments=(),
-                            alignment_engine=ALIGNMENT_ENGINE_MFA,
-                            alignment_version=version_or_error,
-                            success=False,
-                            error_message="No TextGrid output found",
-                        )
+                except subprocess.TimeoutExpired:
+                    attempt_errors.append("MFA alignment timed out (>5 minutes)")
+                except Exception as e:
+                    LOGGER.exception("Unexpected error during MFA alignment for %s", recording_id)
+                    attempt_errors.append(str(e)[:500])
 
-                textgrid_dest = output_dir / f"{recording_id}.TextGrid"
-                shutil.copy2(textgrid_src, textgrid_dest)
-
-                segments, word_segments = parse_textgrid(textgrid_dest)
-
-                return AlignmentResult(
-                    recording_id=recording_id,
-                    audio_path=audio_path,
-                    textgrid_path=textgrid_dest,
-                    segments=segments,
-                    word_segments=word_segments,
-                    alignment_engine=ALIGNMENT_ENGINE_MFA,
-                    alignment_version=version_or_error,
-                    success=True,
-                    error_message=None,
-                )
-
-            except subprocess.TimeoutExpired:
-                return AlignmentResult(
-                    recording_id=recording_id,
-                    audio_path=audio_path,
-                    textgrid_path=None,
-                    segments=(),
-                    word_segments=(),
-                    alignment_engine=ALIGNMENT_ENGINE_MFA,
-                    alignment_version=version_or_error,
-                    success=False,
-                    error_message="MFA alignment timed out (>5 minutes)",
-                )
-            except Exception as e:
-                LOGGER.exception("Unexpected error during MFA alignment for %s", recording_id)
-                return AlignmentResult(
-                    recording_id=recording_id,
-                    audio_path=audio_path,
-                    textgrid_path=None,
-                    segments=(),
-                    word_segments=(),
-                    alignment_engine=ALIGNMENT_ENGINE_MFA,
-                    alignment_version=version_or_error,
-                    success=False,
-                    error_message=str(e)[:500],
-                )
+            return AlignmentResult(
+                recording_id=recording_id,
+                audio_path=audio_path,
+                textgrid_path=None,
+                segments=(),
+                word_segments=(),
+                alignment_engine=ALIGNMENT_ENGINE_MFA,
+                alignment_version=version_or_error,
+                success=False,
+                error_message=" | ".join(attempt_errors)[:500] if attempt_errors else "Unknown MFA error",
+            )
 
 
 def parse_textgrid(textgrid_path: Path) -> tuple[tuple[AlignedPhonemeSegment, ...], tuple[WordSegment, ...]]:
@@ -354,3 +357,45 @@ def align_batch(
         else:
             LOGGER.warning("Failed to align %s: %s", recording_id, result.error_message)
     return results
+
+
+def _resolve_mfa_base_command() -> list[str]:
+    """Resolve MFA invocation command from environment or installed tooling."""
+    explicit_command = os.getenv("SPEECH_MFA_COMMAND")
+    if explicit_command:
+        return shlex.split(explicit_command)
+
+    direct_mfa = shutil.which("mfa")
+    if direct_mfa:
+        return [direct_mfa]
+
+    micromamba = shutil.which("micromamba") or "/opt/homebrew/bin/micromamba"
+    if Path(micromamba).exists():
+        return [micromamba, "run", "-n", os.getenv("SPEECH_MFA_ENV", "aligner"), "mfa"]
+
+    return ["mfa"]
+
+
+def _read_wav_duration_sec(audio_path: Path) -> float | None:
+    """Read WAV duration in seconds for transcript candidate selection."""
+    try:
+        with wave.open(str(audio_path), "rb") as wav_file:
+            frame_rate = wav_file.getframerate()
+            if frame_rate <= 0:
+                return None
+            return wav_file.getnframes() / frame_rate
+    except Exception:
+        return None
+
+
+def _candidate_transcriptions_for_duration(duration_sec: float | None) -> tuple[str, ...]:
+    """Pick likely transcript variants based on recording duration."""
+    if duration_sec is None:
+        return (RAINBOW_PASSAGE_TEXT, RAINBOW_PASSAGE_MEDIUM_TEXT, RAINBOW_PASSAGE_SHORT_TEXT)
+
+    # Empirical fit for current prosody_reading clips (~3-13 seconds).
+    if duration_sec <= 8.0:
+        return (RAINBOW_PASSAGE_SHORT_TEXT, RAINBOW_PASSAGE_MEDIUM_TEXT, RAINBOW_PASSAGE_TEXT)
+    if duration_sec <= 16.0:
+        return (RAINBOW_PASSAGE_MEDIUM_TEXT, RAINBOW_PASSAGE_SHORT_TEXT, RAINBOW_PASSAGE_TEXT)
+    return (RAINBOW_PASSAGE_TEXT, RAINBOW_PASSAGE_MEDIUM_TEXT, RAINBOW_PASSAGE_SHORT_TEXT)

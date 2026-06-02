@@ -1,6 +1,9 @@
 from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
+    RAINBOW_PASSAGE_MEDIUM_TEXT,
+    RAINBOW_PASSAGE_SHORT_TEXT,
     RAINBOW_PASSAGE_TEXT,
     WordSegment,
+    _candidate_transcriptions_for_duration,
     check_mfa_available,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality import (
@@ -63,7 +66,8 @@ def test_classify_phoneme_assigns_nasal_class_to_nasal_adjacent_vowel() -> None:
     classification = classify_phoneme("AE1", prev_label="B", next_label="N")
 
     assert classification.phoneme_label == "AE"
-    assert classification.phoneme_class_primary == PHONEME_CLASS_NASAL_COUPLED
+    assert classification.phoneme_class_primary == "AE"
+    assert PHONEME_CLASS_NASAL_COUPLED in classification.phoneme_class_tags
     assert classification.is_adjacent_to_nasal is True
     assert classification.coarticulation_context == COARTICULATION_NASAL_RIGHT
 
@@ -71,9 +75,16 @@ def test_classify_phoneme_assigns_nasal_class_to_nasal_adjacent_vowel() -> None:
 def test_classify_phoneme_keeps_overlap_tags_for_voiceless_oral_phone() -> None:
     classification = classify_phoneme("S", prev_label="AA", next_label="T")
 
-    assert classification.phoneme_class_primary == PHONEME_CLASS_VOICELESS_FRICATION
+    assert classification.phoneme_class_primary == "S"
     assert PHONEME_CLASS_VOICELESS_FRICATION in classification.phoneme_class_tags
     assert PHONEME_CLASS_ORAL_ANTERIOR in classification.phoneme_class_tags
+
+
+def test_classify_phoneme_keeps_non_target_phone_as_granular_primary() -> None:
+    classification = classify_phoneme("R")
+
+    assert classification.phoneme_class_primary == "R"
+    assert classification.phoneme_class_tags == ()
 
 
 def test_schema_fields_include_experiment_isolation_root_and_no_duplicates() -> None:
@@ -189,6 +200,23 @@ def test_word_segment_dataclass_is_frozen() -> None:
     assert segment.end_sec == 1.0
 
 
+def test_candidate_transcriptions_short_duration_prefers_short_text() -> None:
+    candidates = _candidate_transcriptions_for_duration(6.0)
+    assert candidates[0] == RAINBOW_PASSAGE_SHORT_TEXT
+    assert candidates[1] == RAINBOW_PASSAGE_MEDIUM_TEXT
+
+
+def test_candidate_transcriptions_medium_duration_prefers_medium_text() -> None:
+    candidates = _candidate_transcriptions_for_duration(12.0)
+    assert candidates[0] == RAINBOW_PASSAGE_MEDIUM_TEXT
+    assert candidates[1] == RAINBOW_PASSAGE_SHORT_TEXT
+
+
+def test_candidate_transcriptions_unknown_duration_prefers_full_text() -> None:
+    candidates = _candidate_transcriptions_for_duration(None)
+    assert candidates[0] == RAINBOW_PASSAGE_TEXT
+
+
 def test_compute_segment_boundaries_applies_trim_when_duration_allows() -> None:
     boundaries = compute_segment_boundaries(
         start_sec=0.0,
@@ -265,3 +293,5 @@ def test_compute_aggregates_uses_logrel_h1h2_fallback_column() -> None:
     features = _compute_aggregates(lld_frame)
     assert features.h1h2_mean is not None
     assert abs(features.h1h2_mean - 0.3) < 1e-9
+
+

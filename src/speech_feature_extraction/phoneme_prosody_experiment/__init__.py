@@ -1,4 +1,4 @@
-"""Isolated prosody phoneme experiment primitives."""
+"""Phoneme prosody experiment primitives."""
 
 from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
     ALIGNMENT_ENGINE_MFA,
@@ -24,14 +24,9 @@ from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality impo
     select_calibration_samples,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.biomarkers import (
-    MIN_OBSERVATIONS_FOR_CONTRAST,
     MIN_OBSERVATIONS_FOR_RELIABLE_MEAN,
-    DailyClassAggregate,
     DailyPhonemeAggregate,
-    NasalOralContrast,
     PhonemeTrajectory,
-    compute_daily_class_aggregates,
-    compute_daily_nasal_oral_contrasts,
     compute_daily_phoneme_aggregates,
     compute_phoneme_trajectories,
     summarize_phoneme_occurrence_stats,
@@ -66,6 +61,12 @@ from speech_feature_extraction.phoneme_prosody_experiment.rainbow_inventory impo
     get_expected_phone_count,
     validate_phone_coverage,
 )
+from speech_feature_extraction.phoneme_prosody_experiment.pipeline import (
+    PhonemeRowData,
+    RecordingMetadata,
+    process_batch,
+    process_recording,
+)
 from speech_feature_extraction.phoneme_prosody_experiment.segment_features import (
     DEFAULT_TRIM_POLICY_MS,
     MIN_ANALYSIS_DURATION_SEC,
@@ -77,12 +78,25 @@ from speech_feature_extraction.phoneme_prosody_experiment.segment_features impor
     slice_audio_segment,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
+    COARTICULATION_NASAL_BOTH,
+    COARTICULATION_NASAL_LEFT,
+    COARTICULATION_NASAL_RIGHT,
+    COARTICULATION_NONE,
     NASAL_PHONEMES,
+    ORAL_ANTERIOR_PHONEMES,
     PHARYNGEAL_ENGAGED_PHONEMES,
+    PHONEME_CLASS_NASAL_COUPLED,
+    PHONEME_CLASS_ORAL_ANTERIOR,
+    PHONEME_CLASS_PHARYNGEAL_ENGAGED,
+    PHONEME_CLASS_UNKNOWN,
+    PHONEME_CLASS_VOICELESS_FRICATION,
     PRIMARY_CLASS_TO_PHONEMES,
     VOICELESS_FRICATION_PHONEMES,
+    VOWEL_PHONEMES,
+    PhonemeClassification,
     classify_phoneme,
     derive_coarticulation_context,
+    normalize_phoneme_label,
 )
 
 __all__ = [
@@ -109,14 +123,9 @@ __all__ = [
     "export_calibration_samples_csv",
     "select_calibration_samples",
     # Biomarkers
-    "MIN_OBSERVATIONS_FOR_CONTRAST",
     "MIN_OBSERVATIONS_FOR_RELIABLE_MEAN",
-    "DailyClassAggregate",
     "DailyPhonemeAggregate",
-    "NasalOralContrast",
     "PhonemeTrajectory",
-    "compute_daily_class_aggregates",
-    "compute_daily_nasal_oral_contrasts",
     "compute_daily_phoneme_aggregates",
     "compute_phoneme_trajectories",
     "summarize_phoneme_occurrence_stats",
@@ -156,10 +165,28 @@ __all__ = [
     "compute_segment_boundaries",
     "slice_audio_segment",
     # Taxonomy
+    "COARTICULATION_NASAL_BOTH",
+    "COARTICULATION_NASAL_LEFT",
+    "COARTICULATION_NASAL_RIGHT",
+    "COARTICULATION_NONE",
     "NASAL_PHONEMES",
+    "ORAL_ANTERIOR_PHONEMES",
     "PHARYNGEAL_ENGAGED_PHONEMES",
+    "PHONEME_CLASS_NASAL_COUPLED",
+    "PHONEME_CLASS_ORAL_ANTERIOR",
+    "PHONEME_CLASS_PHARYNGEAL_ENGAGED",
+    "PHONEME_CLASS_UNKNOWN",
+    "PHONEME_CLASS_VOICELESS_FRICATION",
     "PRIMARY_CLASS_TO_PHONEMES",
     "VOICELESS_FRICATION_PHONEMES",
+    "VOWEL_PHONEMES",
+    "PhonemeClassification",
     "classify_phoneme",
     "derive_coarticulation_context",
+    "normalize_phoneme_label",
+    # Pipeline
+    "PhonemeRowData",
+    "RecordingMetadata",
+    "process_batch",
+    "process_recording",
 ]

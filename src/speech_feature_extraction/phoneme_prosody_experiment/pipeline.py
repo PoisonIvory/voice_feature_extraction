@@ -2,10 +2,9 @@
 
 This module coordinates the full extraction flow:
 1. Alignment via MFA
-2. Context labeling and taxonomy assignment
-3. Segment feature extraction with trim policy
-4. Quality assessment
-5. Output to parquet with full schema
+2. Segment feature extraction with trim policy
+3. Quality assessment
+4. Output to parquet with full schema
 """
 
 from __future__ import annotations
@@ -13,15 +12,12 @@ from __future__ import annotations
 import hashlib
 import logging
 from dataclasses import asdict, dataclass
-from datetime import date
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
-    ALIGNMENT_ENGINE_MFA,
-    AlignmentResult,
     align_recording,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality import (
@@ -29,11 +25,9 @@ from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality impo
 )
 from speech_feature_extraction.phoneme_prosody_experiment.rainbow_profile import (
     AlignedPhonemeSegment,
-    build_rainbow_template,
     summarize_alignment_against_template,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.schema import (
-    PHONEME_PROSODY_EXPERIMENT_DATA_ROOT,
     PHONEME_PROSODY_FEATURES_FILENAME,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.segment_features import (
@@ -47,7 +41,7 @@ from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
 
 LOGGER = logging.getLogger(__name__)
 
-EXTRACTOR_VERSION = "phoneme_prosody_v1"
+EXTRACTOR_VERSION = "phoneme_prosody_v2"
 
 
 @dataclass
