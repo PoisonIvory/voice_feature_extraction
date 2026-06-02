@@ -1,10 +1,17 @@
+from pathlib import Path
+
 from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
+    PROSODY_CANONICAL_TRANSCRIPTION,
     RAINBOW_PASSAGE_MEDIUM_TEXT,
     RAINBOW_PASSAGE_SHORT_TEXT,
     RAINBOW_PASSAGE_TEXT,
     WordSegment,
+    _build_transcription_candidates,
     _candidate_transcriptions_for_duration,
     check_mfa_available,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.biomarkers import (
+    summarize_segment_qc_stats,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality import (
     QUALITY_GOOD,
@@ -56,6 +63,16 @@ def test_normalize_phoneme_label_strips_stress_suffix() -> None:
     assert normalize_phoneme_label(" ng ") == "NG"
 
 
+def test_normalize_phoneme_label_maps_common_mfa_ipa_symbols() -> None:
+    assert normalize_phoneme_label("ɪ") == "IH"
+    assert normalize_phoneme_label("ə") == "AH"
+    assert normalize_phoneme_label("aj") == "AY"
+    assert normalize_phoneme_label("tʰ") == "T"
+    assert normalize_phoneme_label("ɫ̩") == "L"
+    assert normalize_phoneme_label("ɲ") == "N"
+    assert normalize_phoneme_label("ʉː") == "UW"
+
+
 def test_derive_coarticulation_context_handles_directionality() -> None:
     assert derive_coarticulation_context("N", "M") == COARTICULATION_NASAL_BOTH
     assert derive_coarticulation_context("N", "T") == COARTICULATION_NASAL_LEFT
@@ -69,6 +86,14 @@ def test_classify_phoneme_assigns_nasal_class_to_nasal_adjacent_vowel() -> None:
     assert classification.phoneme_class_primary == "AE"
     assert PHONEME_CLASS_NASAL_COUPLED in classification.phoneme_class_tags
     assert classification.is_adjacent_to_nasal is True
+    assert classification.coarticulation_context == COARTICULATION_NASAL_RIGHT
+
+
+def test_classify_phoneme_uses_ipa_mapping_for_nasal_adjacency() -> None:
+    classification = classify_phoneme("æ", prev_label="b", next_label="ŋ")
+
+    assert classification.phoneme_label == "AE"
+    assert PHONEME_CLASS_NASAL_COUPLED in classification.phoneme_class_tags
     assert classification.coarticulation_context == COARTICULATION_NASAL_RIGHT
 
 
@@ -157,6 +182,13 @@ def test_rainbow_passage_text_is_not_empty() -> None:
     assert "sunlight" in RAINBOW_PASSAGE_TEXT.lower()
 
 
+def test_prosody_canonical_transcription_is_sentence_like() -> None:
+    normalized = PROSODY_CANONICAL_TRANSCRIPTION.lower()
+    assert len(normalized) > 80
+    assert "division of white light into many beautiful colors" in normalized
+    assert "two ends apparently beyond the horizon" in normalized
+
+
 def test_rainbow_inventory_has_expected_phone_count() -> None:
     assert RAINBOW_PASSAGE_TOTAL_PHONES > 200
     assert len(RAINBOW_PASSAGE_ARPABET_SEQUENCE) == RAINBOW_PASSAGE_TOTAL_PHONES
@@ -215,6 +247,12 @@ def test_candidate_transcriptions_medium_duration_prefers_medium_text() -> None:
 def test_candidate_transcriptions_unknown_duration_prefers_full_text() -> None:
     candidates = _candidate_transcriptions_for_duration(None)
     assert candidates[0] == RAINBOW_PASSAGE_TEXT
+
+
+def test_build_transcription_candidates_prioritizes_explicit_text() -> None:
+    candidates = _build_transcription_candidates("Custom transcript", audio_path=Path(__file__))
+    assert candidates[0] == "Custom transcript"
+    assert RAINBOW_PASSAGE_TEXT in candidates
 
 
 def test_compute_segment_boundaries_applies_trim_when_duration_allows() -> None:
@@ -293,5 +331,41 @@ def test_compute_aggregates_uses_logrel_h1h2_fallback_column() -> None:
     features = _compute_aggregates(lld_frame)
     assert features.h1h2_mean is not None
     assert abs(features.h1h2_mean - 0.3) < 1e-9
+
+
+def test_compute_aggregates_honors_custom_min_frames_threshold() -> None:
+    import pandas as pd
+
+    lld_frame = pd.DataFrame(
+        {
+            "F0semitoneFrom27.5Hz_sma3nz": [100.0, 110.0, 120.0],
+            "mfcc2_sma3": [1.0, 2.0, 3.0],
+            "F1bandwidth_sma3nz": [50.0, 51.0, 52.0],
+        }
+    )
+
+    features = _compute_aggregates(lld_frame, min_frames_for_variance=4)
+    assert features.qc_segment_ok is False
+    assert features.qc_min_frames_required == 4
+    assert features.qc_segment_reason == "insufficient_frames"
+
+
+def test_summarize_segment_qc_stats_counts_common_failure_reasons() -> None:
+    import pandas as pd
+
+    frame = pd.DataFrame(
+        {
+            "qc_segment_ok": [True, False, False],
+            "qc_segment_reason": ["ok", "segment_too_short", "insufficient_frames"],
+            "qc_numFrames": [8, 0, 3],
+            "qc_minFramesRequired": [4, 4, 4],
+        }
+    )
+    summary = summarize_segment_qc_stats(frame)
+
+    assert summary["total_rows"] == 3
+    assert summary["qc_ok_rows"] == 1
+    assert summary["segment_too_short_rows"] == 1
+    assert summary["insufficient_frames_rows"] == 1
 
 

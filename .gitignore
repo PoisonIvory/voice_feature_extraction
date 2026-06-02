@@ -9,6 +9,7 @@ __pycache__/
 
 data/raw_audio/
 data/processed/
+data/experimental/
 *.parquet
 *.csv
 *.xlsx

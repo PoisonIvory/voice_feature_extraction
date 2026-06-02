@@ -18,6 +18,7 @@ from typing import Any
 import pandas as pd
 
 from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
+    PROSODY_CANONICAL_TRANSCRIPTION,
     align_recording,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality import (
@@ -106,6 +107,7 @@ class RecordingMetadata:
     recorded_date: str
     task_type: str
     audio_path: Path
+    transcription: str = PROSODY_CANONICAL_TRANSCRIPTION
 
 
 def process_recording(
@@ -131,6 +133,7 @@ def process_recording(
         audio_path=metadata.audio_path,
         recording_id=metadata.recording_id,
         output_dir=alignments_dir,
+        transcription=metadata.transcription,
     )
 
     if not alignment.success:
@@ -229,12 +232,14 @@ def process_recording(
 def process_batch(
     recordings: list[RecordingMetadata],
     output_dir: Path,
+    feature_extractor: SegmentFeatureExtractor | None = None,
 ) -> tuple[Path, int, int]:
     """Process multiple recordings and write output parquet.
 
     Args:
         recordings: List of recording metadata.
         output_dir: Base output directory for experiment.
+        feature_extractor: Optional shared extractor instance with custom settings.
 
     Returns:
         Tuple of (parquet_path, success_count, failure_count).
@@ -243,7 +248,8 @@ def process_batch(
     alignments_dir = output_dir / "alignments"
     alignments_dir.mkdir(parents=True, exist_ok=True)
 
-    feature_extractor = SegmentFeatureExtractor()
+    if feature_extractor is None:
+        feature_extractor = SegmentFeatureExtractor()
 
     all_rows: list[PhonemeRowData] = []
     success_count = 0

@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
 DEFAULT_TRIM_POLICY_MS = 20.0
 MIN_ANALYSIS_DURATION_SEC = 0.030
-MIN_FRAMES_FOR_VARIANCE = 5
+MIN_FRAMES_FOR_VARIANCE = 4
 LLD_HOP_SIZE_SEC = 0.010
 
 
@@ -147,7 +147,7 @@ def slice_audio_segment(
 class SegmentFeatureExtractor:
     """Extract LLD-based features from short phoneme segments."""
 
-    def __init__(self) -> None:
+    def __init__(self, min_frames_for_variance: int = MIN_FRAMES_FOR_VARIANCE) -> None:
         try:
             opensmile = importlib.import_module("opensmile")
         except ModuleNotFoundError as error:
@@ -155,6 +155,7 @@ class SegmentFeatureExtractor:
                 "openSMILE Python package is not installed. Install with: pip install opensmile"
             ) from error
 
+        self._min_frames_for_variance = max(int(min_frames_for_variance), 1)
         self._opensmile = opensmile
         self._smile_lld = opensmile.Smile(
             feature_set=opensmile.FeatureSet.eGeMAPSv02,
@@ -196,7 +197,7 @@ class SegmentFeatureExtractor:
         analysis_duration = boundaries.analysis_end_sec - boundaries.analysis_start_sec
         if analysis_duration < MIN_ANALYSIS_DURATION_SEC:
             return (
-                _empty_features("segment_too_short"),
+                _empty_features("segment_too_short", self._min_frames_for_variance),
                 boundaries,
             )
 
@@ -208,7 +209,7 @@ class SegmentFeatureExtractor:
             )
         except Exception as e:
             return (
-                _empty_features(f"slice_failed: {str(e)[:50]}"),
+                _empty_features(f"slice_failed: {str(e)[:50]}", self._min_frames_for_variance),
                 boundaries,
             )
 
@@ -217,7 +218,7 @@ class SegmentFeatureExtractor:
         except Exception as e:
             _cleanup_temp(segment_path)
             return (
-                _empty_features(f"lld_failed: {str(e)[:50]}"),
+                _empty_features(f"lld_failed: {str(e)[:50]}", self._min_frames_for_variance),
                 boundaries,
             )
         finally:
@@ -225,15 +226,21 @@ class SegmentFeatureExtractor:
 
         if lld_frame.empty:
             return (
-                _empty_features("no_lld_frames"),
+                _empty_features("no_lld_frames", self._min_frames_for_variance),
                 boundaries,
             )
 
-        features = _compute_aggregates(lld_frame)
+        features = _compute_aggregates(
+            lld_frame,
+            min_frames_for_variance=self._min_frames_for_variance,
+        )
         return features, boundaries
 
 
-def _compute_aggregates(lld_frame: "pd.DataFrame") -> SegmentFeatures:
+def _compute_aggregates(
+    lld_frame: "pd.DataFrame",
+    min_frames_for_variance: int = MIN_FRAMES_FOR_VARIANCE,
+) -> SegmentFeatures:
     """Compute robust aggregates from LLD frame data."""
     total_frames = len(lld_frame)
 
@@ -258,7 +265,7 @@ def _compute_aggregates(lld_frame: "pd.DataFrame") -> SegmentFeatures:
         voiced_frames = int(np.sum(voiced_mask))
         voiced_ratio = voiced_frames / total_frames if total_frames > 0 else 0.0
 
-    qc_ok = total_frames >= MIN_FRAMES_FOR_VARIANCE
+    qc_ok = total_frames >= min_frames_for_variance
     qc_reason = "ok" if qc_ok else "insufficient_frames"
 
     return SegmentFeatures(
@@ -273,7 +280,7 @@ def _compute_aggregates(lld_frame: "pd.DataFrame") -> SegmentFeatures:
         qc_segment_ok=qc_ok,
         qc_segment_reason=qc_reason,
         qc_num_frames=total_frames,
-        qc_min_frames_required=MIN_FRAMES_FOR_VARIANCE,
+        qc_min_frames_required=min_frames_for_variance,
         qc_voiced_frames=voiced_frames,
         qc_voiced_ratio=voiced_ratio,
     )
@@ -290,7 +297,10 @@ def _safe_mean(values: np.ndarray | None) -> float | None:
     """Compute mean, returning None if invalid."""
     if values is None or len(values) == 0:
         return None
-    result = float(np.nanmean(values))
+    finite_values = values[np.isfinite(values)]
+    if len(finite_values) == 0:
+        return None
+    result = float(np.mean(finite_values))
     return result if np.isfinite(result) else None
 
 
@@ -298,7 +308,10 @@ def _safe_median(values: np.ndarray | None) -> float | None:
     """Compute median, returning None if invalid."""
     if values is None or len(values) == 0:
         return None
-    result = float(np.nanmedian(values))
+    finite_values = values[np.isfinite(values)]
+    if len(finite_values) == 0:
+        return None
+    result = float(np.median(finite_values))
     return result if np.isfinite(result) else None
 
 
@@ -324,7 +337,7 @@ def _safe_median_voiced(values: np.ndarray | None) -> float | None:
     return result if np.isfinite(result) else None
 
 
-def _empty_features(reason: str) -> SegmentFeatures:
+def _empty_features(reason: str, min_frames_for_variance: int) -> SegmentFeatures:
     """Return empty features with failure reason."""
     return SegmentFeatures(
         mfcc2_mean=None,
@@ -338,7 +351,7 @@ def _empty_features(reason: str) -> SegmentFeatures:
         qc_segment_ok=False,
         qc_segment_reason=reason,
         qc_num_frames=0,
-        qc_min_frames_required=MIN_FRAMES_FOR_VARIANCE,
+        qc_min_frames_required=min_frames_for_variance,
         qc_voiced_frames=0,
         qc_voiced_ratio=0.0,
     )

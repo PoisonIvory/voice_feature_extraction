@@ -35,15 +35,19 @@ RAINBOW_PASSAGE_SENTENCE_ONE = (
 RAINBOW_PASSAGE_SENTENCE_TWO = (
     "The rainbow is a division of white light into many beautiful colors."
 )
+RAINBOW_PASSAGE_SENTENCE_THREE = (
+    "These take the shape of a long round arch, with its path high above, and its two ends "
+    "apparently beyond the horizon."
+)
 RAINBOW_PASSAGE_TEXT = (
     f"{RAINBOW_PASSAGE_SENTENCE_ONE} {RAINBOW_PASSAGE_SENTENCE_TWO} "
-    "These take the shape of a long round arch, with its path high above, and its two ends "
-    "apparently beyond the horizon. There is, according to legend, a boiling pot of gold at one end. "
+    f"{RAINBOW_PASSAGE_SENTENCE_THREE} There is, according to legend, a boiling pot of gold at one end. "
     "People look, but no one ever finds it. When a man looks for something beyond his reach, his "
     "friends say he is looking for the pot of gold at the end of the rainbow."
 )
 RAINBOW_PASSAGE_MEDIUM_TEXT = f"{RAINBOW_PASSAGE_SENTENCE_ONE} {RAINBOW_PASSAGE_SENTENCE_TWO}"
 RAINBOW_PASSAGE_SHORT_TEXT = RAINBOW_PASSAGE_SENTENCE_ONE
+PROSODY_CANONICAL_TRANSCRIPTION = f"{RAINBOW_PASSAGE_SENTENCE_TWO} {RAINBOW_PASSAGE_SENTENCE_THREE}"
 
 MFA_ACOUSTIC_MODEL = "english_mfa"
 MFA_DICTIONARY = "english_us_mfa"
@@ -146,10 +150,7 @@ def align_recording(
     Returns:
         AlignmentResult with parsed phone segments.
     """
-    if transcription is None:
-        transcriptions = _candidate_transcriptions_for_duration(_read_wav_duration_sec(audio_path))
-    else:
-        transcriptions = (transcription,)
+    transcriptions = _build_transcription_candidates(transcription, audio_path)
 
     available, version_or_error = check_mfa_available()
     if not available:
@@ -399,3 +400,23 @@ def _candidate_transcriptions_for_duration(duration_sec: float | None) -> tuple[
     if duration_sec <= 16.0:
         return (RAINBOW_PASSAGE_MEDIUM_TEXT, RAINBOW_PASSAGE_SHORT_TEXT, RAINBOW_PASSAGE_TEXT)
     return (RAINBOW_PASSAGE_TEXT, RAINBOW_PASSAGE_MEDIUM_TEXT, RAINBOW_PASSAGE_SHORT_TEXT)
+
+
+def _build_transcription_candidates(
+    transcription: str | None,
+    audio_path: Path,
+) -> tuple[str, ...]:
+    """Build ordered transcript candidates for alignment attempts."""
+    heuristic_candidates = _candidate_transcriptions_for_duration(_read_wav_duration_sec(audio_path))
+    if transcription is None:
+        return heuristic_candidates
+
+    explicit = transcription.strip()
+    ordered = [explicit, *heuristic_candidates] if explicit else list(heuristic_candidates)
+    deduped: list[str] = []
+    for candidate in ordered:
+        cleaned = candidate.strip()
+        if not cleaned or cleaned in deduped:
+            continue
+        deduped.append(cleaned)
+    return tuple(deduped)

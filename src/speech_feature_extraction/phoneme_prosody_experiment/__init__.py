@@ -2,6 +2,7 @@
 
 from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
     ALIGNMENT_ENGINE_MFA,
+    PROSODY_CANONICAL_TRANSCRIPTION,
     RAINBOW_PASSAGE_TEXT,
     AlignmentResult,
     WordSegment,
@@ -25,6 +26,7 @@ from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality impo
 )
 from speech_feature_extraction.phoneme_prosody_experiment.biomarkers import (
     MIN_OBSERVATIONS_FOR_RELIABLE_MEAN,
+    summarize_segment_qc_stats,
     DailyPhonemeAggregate,
     PhonemeTrajectory,
     compute_daily_phoneme_aggregates,
@@ -102,6 +104,7 @@ from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
 __all__ = [
     # Alignment
     "ALIGNMENT_ENGINE_MFA",
+    "PROSODY_CANONICAL_TRANSCRIPTION",
     "AlignedPhonemeSegment",
     "AlignmentResult",
     "RAINBOW_PASSAGE_TEXT",
@@ -129,6 +132,7 @@ __all__ = [
     "compute_daily_phoneme_aggregates",
     "compute_phoneme_trajectories",
     "summarize_phoneme_occurrence_stats",
+    "summarize_segment_qc_stats",
     # Schema
     "PHONEME_PROSODY_ALIGNMENT_FIELDS",
     "PHONEME_PROSODY_BOUNDARY_FIELDS",

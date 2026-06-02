@@ -4,8 +4,110 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import re
+import unicodedata
 
 STRESS_SUFFIX_PATTERN = re.compile(r"\d+$")
+
+# Canonical ARPAbet inventory used for downstream taxonomy and grouping.
+ARPABET_PHONEMES = frozenset(
+    {
+        "AA",
+        "AE",
+        "AH",
+        "AO",
+        "AW",
+        "AY",
+        "B",
+        "CH",
+        "D",
+        "DH",
+        "EH",
+        "ER",
+        "EY",
+        "F",
+        "G",
+        "HH",
+        "IH",
+        "IY",
+        "JH",
+        "K",
+        "L",
+        "M",
+        "N",
+        "NG",
+        "OW",
+        "OY",
+        "P",
+        "R",
+        "S",
+        "SH",
+        "T",
+        "TH",
+        "UH",
+        "UW",
+        "V",
+        "W",
+        "Y",
+        "Z",
+        "ZH",
+    }
+)
+
+# Common MFA IPA-style symbols mapped to canonical ARPAbet.
+IPA_TO_ARPABET = {
+    "a": "AA",
+    "aː": "AA",
+    "aj": "AY",
+    "aw": "AW",
+    "b": "B",
+    "d": "D",
+    "dʒ": "JH",
+    "d͡ʒ": "JH",
+    "e": "EY",
+    "ej": "EY",
+    "f": "F",
+    "g": "G",
+    "h": "HH",
+    "i": "IY",
+    "j": "Y",
+    "k": "K",
+    "l": "L",
+    "m": "M",
+    "n": "N",
+    "o": "OW",
+    "ow": "OW",
+    "p": "P",
+    "r": "R",
+    "s": "S",
+    "t": "T",
+    "tʃ": "CH",
+    "t͡ʃ": "CH",
+    "u": "UW",
+    "v": "V",
+    "w": "W",
+    "z": "Z",
+    "æ": "AE",
+    "ð": "DH",
+    "ŋ": "NG",
+    "ɑ": "AA",
+    "ɔ": "AO",
+    "ə": "AH",
+    "ɚ": "ER",
+    "ɝ": "ER",
+    "ɐ": "AH",
+    "ɫ": "L",
+    "ɲ": "N",
+    "ɾ": "D",
+    "ɛ": "EH",
+    "ɪ": "IH",
+    "ɹ": "R",
+    "ʉ": "UW",
+    "ʉː": "UW",
+    "ʃ": "SH",
+    "ʊ": "UH",
+    "ʒ": "ZH",
+    "θ": "TH",
+}
 
 COARTICULATION_NONE = "none"
 COARTICULATION_NASAL_LEFT = "nasal_left"
@@ -65,8 +167,30 @@ def normalize_phoneme_label(label: str | None) -> str | None:
     """Normalize aligner phone labels to stress-free uppercase ARPAbet."""
     if label is None:
         return None
-    normalized = STRESS_SUFFIX_PATTERN.sub("", label.strip().upper())
-    return normalized or None
+    stripped = STRESS_SUFFIX_PATTERN.sub("", label.strip())
+    if not stripped:
+        return None
+    canonical = stripped.upper()
+    if canonical in ARPABET_PHONEMES:
+        return canonical
+
+    # MFA english_us_mfa often emits IPA-like symbols with diacritics.
+    ipa_key = _strip_diacritics(stripped).lower()
+    mapped = IPA_TO_ARPABET.get(ipa_key)
+    if mapped:
+        return mapped
+
+    fallback = stripped.upper()
+    return fallback or None
+
+
+def _strip_diacritics(value: str) -> str:
+    """Remove combining IPA marks to stabilize dictionary lookup."""
+    normalized = unicodedata.normalize("NFD", value)
+    cleaned = "".join(char for char in normalized if unicodedata.category(char) != "Mn")
+    for marker in ("ʰ", "ʲ", "ʷ", "ː", "ˑ"):
+        cleaned = cleaned.replace(marker, "")
+    return cleaned
 
 
 def derive_coarticulation_context(prev_label: str | None, next_label: str | None) -> str:

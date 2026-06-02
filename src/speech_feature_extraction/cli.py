@@ -119,6 +119,16 @@ def main() -> None:
         action="store_true",
         help="Only check MFA installation and model availability, do not run alignment.",
     )
+    phoneme_parser.add_argument(
+        "--transcription",
+        help="Explicit transcript to use as primary alignment text for all recordings.",
+    )
+    phoneme_parser.add_argument(
+        "--min-frames-for-variance",
+        type=int,
+        default=4,
+        help="Minimum LLD frames required for qc_segment_ok (default: 4).",
+    )
 
     args = parser.parse_args()
     _configure_logging(args.log_level)
@@ -203,12 +213,19 @@ def _resolve_cli_user_id(parser: argparse.ArgumentParser, requested_user_id: str
 def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
     """Run experimental phoneme prosody extraction."""
     from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
+        PROSODY_CANONICAL_TRANSCRIPTION,
         check_mfa_available,
         check_mfa_models_available,
+    )
+    from speech_feature_extraction.phoneme_prosody_experiment.biomarkers import (
+        summarize_segment_qc_stats,
     )
     from speech_feature_extraction.phoneme_prosody_experiment.pipeline import (
         RecordingMetadata,
         process_batch,
+    )
+    from speech_feature_extraction.phoneme_prosody_experiment.segment_features import (
+        SegmentFeatureExtractor,
     )
 
     audio_dir = Path(args.audio_dir) if args.audio_dir else DEFAULT_RAW_AUDIO_DIR
@@ -217,6 +234,11 @@ def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
     print("[EXPERIMENTAL] Phoneme prosody extraction")
     print(f"Audio directory: {audio_dir}")
     print(f"Output directory: {output_dir}")
+    print(
+        f"Primary transcription: {(args.transcription or PROSODY_CANONICAL_TRANSCRIPTION)[:80]}"
+        f"{'...' if len(args.transcription or PROSODY_CANONICAL_TRANSCRIPTION) > 80 else ''}"
+    )
+    print(f"Min frames for qc_segment_ok: {args.min_frames_for_variance}")
     print()
 
     mfa_available, mfa_version = check_mfa_available()
@@ -299,18 +321,36 @@ def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
                 recorded_date=recorded_date,
                 task_type="prosody",
                 audio_path=wav_path,
+                transcription=args.transcription or PROSODY_CANONICAL_TRANSCRIPTION,
             )
         )
 
+    feature_extractor = SegmentFeatureExtractor(min_frames_for_variance=args.min_frames_for_variance)
     parquet_path, success_count, failure_count = process_batch(
         recordings=recordings,
         output_dir=output_dir,
+        feature_extractor=feature_extractor,
     )
 
     print()
     print(f"Extraction complete: {success_count} succeeded, {failure_count} failed")
     print(f"Feature parquet: {parquet_path}")
     print(f"TextGrid files: {output_dir / 'alignments'}")
+    try:
+        import pandas as pd
+
+        qc_summary = summarize_segment_qc_stats(pd.read_parquet(parquet_path))
+        print(
+            "QC summary: "
+            f"ok={qc_summary['qc_ok_rows']}/{qc_summary['total_rows']} "
+            f"({qc_summary['qc_ok_ratio']:.1%}), "
+            f"segment_too_short={qc_summary['segment_too_short_rows']}, "
+            f"insufficient_frames={qc_summary['insufficient_frames_rows']}, "
+            f"median_frames={qc_summary['median_qc_num_frames']:.1f}, "
+            f"median_min_required={qc_summary['median_qc_min_frames_required']:.1f}"
+        )
+    except Exception as error:
+        LOGGER.warning("Unable to compute segment QC summary: %s", error)
 
 
 if __name__ == "__main__":

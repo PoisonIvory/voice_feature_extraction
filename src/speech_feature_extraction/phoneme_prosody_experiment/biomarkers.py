@@ -174,6 +174,34 @@ def summarize_phoneme_occurrence_stats(
     return summary
 
 
+def summarize_segment_qc_stats(features_df: "pd.DataFrame") -> dict[str, float | int]:
+    """Compute compact QC summary stats for extraction-level reporting."""
+    if features_df.empty:
+        return {
+            "total_rows": 0,
+            "qc_ok_rows": 0,
+            "qc_ok_ratio": 0.0,
+            "segment_too_short_rows": 0,
+            "insufficient_frames_rows": 0,
+            "median_qc_num_frames": 0.0,
+            "median_qc_min_frames_required": 0.0,
+        }
+
+    qc_ok_rows = int(features_df["qc_segment_ok"].sum())
+    total_rows = int(len(features_df))
+    reason_counts = features_df["qc_segment_reason"].value_counts(dropna=False).to_dict()
+
+    return {
+        "total_rows": total_rows,
+        "qc_ok_rows": qc_ok_rows,
+        "qc_ok_ratio": qc_ok_rows / total_rows if total_rows else 0.0,
+        "segment_too_short_rows": int(reason_counts.get("segment_too_short", 0)),
+        "insufficient_frames_rows": int(reason_counts.get("insufficient_frames", 0)),
+        "median_qc_num_frames": float(features_df["qc_numFrames"].median()),
+        "median_qc_min_frames_required": float(features_df["qc_minFramesRequired"].median()),
+    }
+
+
 def _safe_mean(series: "pd.Series | None") -> float | None:
     """Compute mean, handling None and empty series."""
     if series is None or len(series) == 0:
