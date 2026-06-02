@@ -1,16 +1,15 @@
 """Segment-level feature extraction for phoneme prosody experiment.
 
 This module handles:
-1. Slicing audio segments from alignment boundaries
-2. Applying transition trim policy
-3. Extracting frame-level LLDs via openSMILE
+1. Extracting frame-level LLDs via openSMILE once per recording
+2. Applying transition trim policy to each phoneme window
+3. Assigning frames to phonemes by timestamp
 4. Computing robust segment aggregates with frame-count QC
 """
 
 from __future__ import annotations
 
 import importlib
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,8 +20,15 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-DEFAULT_TRIM_POLICY_MS = 20.0
+# No boundary trim by default. Averaging LLDs across the whole phoneme (the
+# "Full" method) is the most reliable approach in the vowel-formant literature,
+# and it keeps the qc frame count equal to the phoneme's true duration so the
+# 4-frame (40 ms) threshold acts as a clean ">=40 ms" inclusion criterion.
+# A positive value re-enables steady-state trimming for callers that want it.
+DEFAULT_TRIM_POLICY_MS = 0.0
 MIN_ANALYSIS_DURATION_SEC = 0.030
+# 4 frames at a 10 ms hop = 40 ms, the minimum phoneme duration for reliable
+# formant/spectral measurement (Eyben et al. eGeMAPS; vowel-formant studies).
 MIN_FRAMES_FOR_VARIANCE = 4
 LLD_HOP_SIZE_SEC = 0.010
 
@@ -67,9 +73,10 @@ def compute_segment_boundaries(
 ) -> SegmentBoundaries:
     """Apply trim policy to segment boundaries.
 
-    The trim removes transition effects at phoneme boundaries. Default is 20ms
-    from each side, but if the resulting segment would be too short for stable
-    analysis, the trim is skipped.
+    The trim removes transition effects at phoneme boundaries. The default trim
+    is 0 ms (no trim; whole-phoneme averaging). When a positive trim is
+    requested, it is skipped if the resulting segment would be too short for
+    stable analysis.
 
     Args:
         start_sec: Original segment start time.
@@ -106,44 +113,6 @@ def compute_segment_boundaries(
     )
 
 
-def slice_audio_segment(
-    audio_path: Path,
-    start_sec: float,
-    end_sec: float,
-    output_path: Path | None = None,
-) -> Path:
-    """Extract audio segment to a temporary or specified path.
-
-    Args:
-        audio_path: Source audio file.
-        start_sec: Start time in seconds.
-        end_sec: End time in seconds.
-        output_path: Optional output path. If None, creates temp file.
-
-    Returns:
-        Path to the sliced segment WAV file.
-    """
-    try:
-        from pydub import AudioSegment
-    except ImportError as e:
-        raise ImportError(
-            "pydub is required for audio slicing. Install with: pip install pydub"
-        ) from e
-
-    audio = AudioSegment.from_wav(str(audio_path))
-    start_ms = int(start_sec * 1000)
-    end_ms = int(end_sec * 1000)
-    segment = audio[start_ms:end_ms]
-
-    if output_path is None:
-        temp_file = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-        output_path = Path(temp_file.name)
-        temp_file.close()
-
-    segment.export(str(output_path), format="wav")
-    return output_path
-
-
 class SegmentFeatureExtractor:
     """Extract LLD-based features from short phoneme segments."""
 
@@ -170,21 +139,36 @@ class SegmentFeatureExtractor:
     def lld_feature_names(self) -> list[str]:
         return list(self._smile_lld.feature_names)
 
-    def extract_segment_llds(self, audio_path: Path) -> "pd.DataFrame":
-        """Extract frame-level LLDs from a segment audio file."""
-        return self._smile_lld.process_file(str(audio_path))
+    def extract_recording_frames(self, audio_path: Path) -> "pd.DataFrame":
+        """Extract frame-level LLDs once for an entire recording.
 
-    def extract_segment_features(
+        openSMILE needs surrounding context for its analysis windows, so it is
+        run a single time over the full audio rather than on per-phoneme slices
+        (which would be too short and return all-NaN placeholder frames). Each
+        frame is annotated with its center time in seconds (``_center_sec``) so
+        phoneme windows can later select their frames by timestamp.
+        """
+        frames = self._smile_lld.process_file(str(audio_path)).reset_index()
+        start_sec = frames["start"].dt.total_seconds()
+        end_sec = frames["end"].dt.total_seconds()
+        frames["_center_sec"] = (start_sec + end_sec) / 2.0
+        return frames
+
+    def aggregate_window(
         self,
-        audio_path: Path,
+        recording_frames: "pd.DataFrame",
         start_sec: float,
         end_sec: float,
         trim_policy_ms: float = DEFAULT_TRIM_POLICY_MS,
     ) -> tuple[SegmentFeatures, SegmentBoundaries]:
-        """Extract features from a phoneme segment with trim policy.
+        """Aggregate the recording's LLD frames that fall inside one phoneme.
+
+        A frame is assigned to the phoneme whose trimmed analysis window
+        contains the frame center, so each frame belongs to exactly one phoneme
+        and no per-segment audio slice is created.
 
         Args:
-            audio_path: Path to the full recording audio.
+            recording_frames: Frame table from ``extract_recording_frames``.
             start_sec: Segment start time from alignment.
             end_sec: Segment end time from alignment.
             trim_policy_ms: Milliseconds to trim from boundaries.
@@ -194,44 +178,20 @@ class SegmentFeatureExtractor:
         """
         boundaries = compute_segment_boundaries(start_sec, end_sec, trim_policy_ms)
 
-        analysis_duration = boundaries.analysis_end_sec - boundaries.analysis_start_sec
-        if analysis_duration < MIN_ANALYSIS_DURATION_SEC:
+        center = recording_frames["_center_sec"].to_numpy()
+        in_window = (center >= boundaries.analysis_start_sec) & (
+            center < boundaries.analysis_end_sec
+        )
+        window_frames = recording_frames[in_window]
+
+        if len(window_frames) == 0:
             return (
                 _empty_features("segment_too_short", self._min_frames_for_variance),
                 boundaries,
             )
 
-        try:
-            segment_path = slice_audio_segment(
-                audio_path,
-                boundaries.analysis_start_sec,
-                boundaries.analysis_end_sec,
-            )
-        except Exception as e:
-            return (
-                _empty_features(f"slice_failed: {str(e)[:50]}", self._min_frames_for_variance),
-                boundaries,
-            )
-
-        try:
-            lld_frame = self.extract_segment_llds(segment_path)
-        except Exception as e:
-            _cleanup_temp(segment_path)
-            return (
-                _empty_features(f"lld_failed: {str(e)[:50]}", self._min_frames_for_variance),
-                boundaries,
-            )
-        finally:
-            _cleanup_temp(segment_path)
-
-        if lld_frame.empty:
-            return (
-                _empty_features("no_lld_frames", self._min_frames_for_variance),
-                boundaries,
-            )
-
         features = _compute_aggregates(
-            lld_frame,
+            window_frames,
             min_frames_for_variance=self._min_frames_for_variance,
         )
         return features, boundaries
@@ -355,12 +315,3 @@ def _empty_features(reason: str, min_frames_for_variance: int) -> SegmentFeature
         qc_voiced_frames=0,
         qc_voiced_ratio=0.0,
     )
-
-
-def _cleanup_temp(path: Path) -> None:
-    """Remove temporary file if it exists."""
-    try:
-        if path.exists():
-            path.unlink()
-    except OSError:
-        pass

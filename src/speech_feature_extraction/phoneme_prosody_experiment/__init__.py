@@ -83,7 +83,6 @@ from speech_feature_extraction.phoneme_prosody_experiment.segment_features impor
     SegmentFeatureExtractor,
     SegmentFeatures,
     compute_segment_boundaries,
-    slice_audio_segment,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
     COARTICULATION_NASAL_BOTH,
@@ -180,7 +179,6 @@ __all__ = [
     "SegmentFeatureExtractor",
     "SegmentFeatures",
     "compute_segment_boundaries",
-    "slice_audio_segment",
     # Taxonomy
     "COARTICULATION_NASAL_BOTH",
     "COARTICULATION_NASAL_LEFT",

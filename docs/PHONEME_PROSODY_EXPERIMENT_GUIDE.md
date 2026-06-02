@@ -279,25 +279,29 @@ flowchart TD
 
 ### 5. `segment_features.py` - Acoustic Feature Extraction
 
-This is where the actual acoustic analysis happens. For each phoneme segment, we extract features using openSMILE.
+This is where the actual acoustic analysis happens. openSMILE LLDs are
+extracted **once over the whole recording** (`extract_recording_frames`), and
+each phoneme then claims the frames whose center falls inside its trimmed
+window (`aggregate_window`). Running openSMILE on per-phoneme audio slices is
+avoided on purpose: its analysis windows need surrounding context, so a tiny
+clip returns a single all-NaN "Segment too short" placeholder frame instead of
+real features.
 
 ```mermaid
 flowchart TB
-    subgraph "Boundary Handling"
-        A[Raw Boundaries<br/>0.100s - 0.180s] --> B[Apply Trim Policy<br/>Remove 20ms each side]
-        B --> C{Duration OK?}
-        C -->|Yes| D[Trimmed Boundaries<br/>0.120s - 0.160s]
-        C -->|No| E[Use Original<br/>0.100s - 0.180s]
+    subgraph "Once per recording"
+        R[Full recording WAV] --> S[openSMILE eGeMAPSv02<br/>LLD extraction]
+        S --> T[Frame table<br/>one row per 10ms + center time]
     end
-    
-    subgraph "Feature Extraction"
-        D --> F[Slice Audio Segment]
-        E --> F
-        F --> G[openSMILE eGeMAPSv02<br/>LLD extraction]
-        G --> H[Frame-level Features<br/>Every 10ms]
-        H --> I[Compute Aggregates<br/>Mean, Median]
+
+    subgraph "Per phoneme"
+        A[Phoneme Boundaries<br/>0.100s - 0.180s] --> B[Apply Trim Policy<br/>default 0ms = whole phoneme]
+        B --> D[Analysis Window]
+        T --> F[Select frames with center in window]
+        D --> F
+        F --> I[Compute Aggregates<br/>Mean, Median]
     end
-    
+
     subgraph "Output Features"
         I --> J[MFCC2: Spectral shape]
         I --> K[H1-H2: Voice quality]
@@ -306,9 +310,11 @@ flowchart TB
     end
 ```
 
-**Why trim boundaries?**
+**Why the trim policy defaults to 0 ms?**
 
-At phoneme transitions, the acoustic signal is "blended" between sounds. By trimming 20ms from each end, we analyze the "steady state" portion where the phoneme is most clearly produced.
+At phoneme transitions the acoustic signal is "blended" between sounds, so an optional trim can isolate the steady-state portion. However, the vowel-formant literature finds that averaging across the whole interval (the "Full" method) is the most reliable, and a fixed 20 ms-per-side trim would discard most of a typical 70 ms phoneme. So the default trim is 0 ms (whole-phoneme averaging), which also makes the 4-frame (40 ms) QC threshold act as a clean ">=40 ms" inclusion criterion. Coarticulation is captured separately via `coarticulationContext` rather than by trimming. A positive `trim_policy_ms` re-enables steady-state trimming; because frames come from the full-file extraction, trimming only narrows which frames a phoneme keeps, never the audio handed to openSMILE.
+
+**Why a 4-frame minimum?** At a 10 ms hop, 4 frames = 40 ms, the minimum phoneme duration for reliable formant/spectral measurement in the phonetics literature (30 ms is only the forced-alignment floor). Shorter phones still get features computed but are flagged `qc_segment_ok = False`.
 
 **Key features extracted**:
 
@@ -419,7 +425,7 @@ flowchart TB
         D -->|Yes| F[For Each Segment]
         
         F --> G[Normalize Phoneme Label]
-        F --> H[extract_segment_features]
+        F --> H[aggregate_window]
         F --> I[assess_segment_quality]
         F --> J[Match Rainbow Template]
         

@@ -152,6 +152,8 @@ def process_recording(
     if feature_extractor is None:
         feature_extractor = SegmentFeatureExtractor()
 
+    recording_frames = feature_extractor.extract_recording_frames(metadata.audio_path)
+
     occurrence_map = _build_occurrence_alignment_map(alignment.segments, rainbow_template)
 
     rows: list[PhonemeRowData] = []
@@ -167,8 +169,8 @@ def process_recording(
             next_label=next_label,
         )
 
-        features, boundaries = feature_extractor.extract_segment_features(
-            audio_path=metadata.audio_path,
+        features, boundaries = feature_extractor.aggregate_window(
+            recording_frames,
             start_sec=segment.start_sec,
             end_sec=segment.end_sec,
             trim_policy_ms=DEFAULT_TRIM_POLICY_MS,
