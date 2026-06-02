@@ -24,6 +24,10 @@ from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
 from speech_feature_extraction.phoneme_prosody_experiment.alignment_quality import (
     assess_segment_quality,
 )
+from speech_feature_extraction.phoneme_prosody_experiment.rainbow_inventory import (
+    PROSODY_CANONICAL_EXPECTED_INVENTORY,
+    validate_phone_coverage,
+)
 from speech_feature_extraction.phoneme_prosody_experiment.rainbow_profile import (
     AlignedPhonemeSegment,
     summarize_alignment_against_template,
@@ -37,6 +41,7 @@ from speech_feature_extraction.phoneme_prosody_experiment.segment_features impor
 )
 from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
     classify_phoneme,
+    group_phoneme,
     normalize_phoneme_label,
 )
 
@@ -86,6 +91,11 @@ class PhonemeRowData:
     # Grouping
     phonemeClassPrimary: str
     phonemeClassTags: str
+    phonemeManner: str
+    phonemePlace: str
+    phonemeVoicing: str
+    phonemeHeight: str | None
+    phonemeBroadClass: str
     # Features
     segment_mfcc2_mean: float | None
     segment_h1h2_mean: float | None
@@ -97,6 +107,58 @@ class PhonemeRowData:
     qc_numFrames: int
     qc_minFramesRequired: int
     qc_label_canonical: bool
+    # Recording-level alignment QC (same value on every row of the recording)
+    qc_recording_coverage_ratio: float
+    qc_recording_unexpected_phones: int
+    qc_recording_ok: bool
+
+
+# Minimum fraction of the expected sentences-2-3 phone inventory that must be
+# present, and the unexpected-phone ceiling, for a recording to pass alignment
+# QC. A correctly aligned correct-transcript read yields ~full coverage and zero
+# unexpected phones; a wrong-content force-align introduces phones absent from
+# the sentences-2-3 inventory.
+RECORDING_QC_MIN_COVERAGE_RATIO = 0.85
+RECORDING_QC_MAX_UNEXPECTED_PHONES = 0
+
+
+@dataclass(frozen=True)
+class RecordingAlignmentQC:
+    """Recording-level alignment sanity check."""
+
+    coverage_ratio: float
+    unexpected_phones: int
+    ok: bool
+
+
+def assess_recording_alignment(
+    segments: list[AlignedPhonemeSegment],
+) -> RecordingAlignmentQC:
+    """Score how well an alignment matches the expected prosody inventory.
+
+    Compares the observed phone inventory against the canonical sentences-2-3
+    inventory to catch recordings where the transcript fallback force-aligned
+    the wrong content (MFA still returns success, but with wrong labels).
+    """
+    observed = {
+        label
+        for segment in segments
+        if (label := normalize_phoneme_label(segment.phoneme_label)) is not None
+    }
+    missing, unexpected = validate_phone_coverage(observed)
+    expected_total = len(PROSODY_CANONICAL_EXPECTED_INVENTORY)
+    coverage_ratio = (
+        (expected_total - len(missing)) / expected_total if expected_total else 0.0
+    )
+    ok = (
+        coverage_ratio >= RECORDING_QC_MIN_COVERAGE_RATIO
+        and len(unexpected) <= RECORDING_QC_MAX_UNEXPECTED_PHONES
+    )
+    return RecordingAlignmentQC(
+        coverage_ratio=coverage_ratio,
+        unexpected_phones=len(unexpected),
+        ok=ok,
+    )
 
 
 @dataclass
@@ -159,6 +221,16 @@ def process_recording(
     rows: list[PhonemeRowData] = []
     segments = list(alignment.segments)
 
+    recording_qc = assess_recording_alignment(segments)
+    if not recording_qc.ok:
+        LOGGER.warning(
+            "Recording %s failed alignment QC (coverage=%.2f, unexpected=%d) - "
+            "rows are flagged qc_recording_ok=False for downstream filtering",
+            metadata.recording_id,
+            recording_qc.coverage_ratio,
+            recording_qc.unexpected_phones,
+        )
+
     for idx, segment in enumerate(segments):
         prev_label = segments[idx - 1].phoneme_label if idx > 0 else None
         next_label = segments[idx + 1].phoneme_label if idx < len(segments) - 1 else None
@@ -168,6 +240,7 @@ def process_recording(
             prev_label=prev_label,
             next_label=next_label,
         )
+        grouping = group_phoneme(segment.phoneme_label)
 
         features, boundaries = feature_extractor.aggregate_window(
             recording_frames,
@@ -218,6 +291,11 @@ def process_recording(
             rainbowTimingConsistent=rainbow_data.get("timing_consistent"),
             phonemeClassPrimary=classification.phoneme_class_primary,
             phonemeClassTags=",".join(classification.phoneme_class_tags),
+            phonemeManner=grouping.manner,
+            phonemePlace=grouping.place,
+            phonemeVoicing=grouping.voicing,
+            phonemeHeight=grouping.height,
+            phonemeBroadClass=grouping.broad_class,
             segment_mfcc2_mean=features.mfcc2_mean,
             segment_h1h2_mean=features.h1h2_mean,
             segment_f1_bandwidth_mean=features.f1_bandwidth_mean,
@@ -227,6 +305,9 @@ def process_recording(
             qc_numFrames=features.qc_num_frames,
             qc_minFramesRequired=features.qc_min_frames_required,
             qc_label_canonical=classification.is_canonical,
+            qc_recording_coverage_ratio=recording_qc.coverage_ratio,
+            qc_recording_unexpected_phones=recording_qc.unexpected_phones,
+            qc_recording_ok=recording_qc.ok,
         )
         rows.append(row)
 
@@ -255,9 +336,17 @@ def process_batch(
     if feature_extractor is None:
         feature_extractor = SegmentFeatureExtractor()
 
-    all_rows: list[PhonemeRowData] = []
+    parquet_path = output_dir / PHONEME_PROSODY_FEATURES_FILENAME
+
+    # Seed with previously-saved recordings that are NOT in this batch, so the
+    # parquet keeps accumulating and re-processed recordings are replaced rather
+    # than duplicated.
+    batch_ids = {metadata.recording_id for metadata in recordings}
+    base_df = _load_existing_excluding(parquet_path, batch_ids)
+
     success_count = 0
     failure_count = 0
+    processed_frames: list[pd.DataFrame] = []
 
     for metadata in recordings:
         LOGGER.info("Processing %s", metadata.recording_id)
@@ -268,28 +357,59 @@ def process_batch(
                 feature_extractor=feature_extractor,
             )
             if rows:
-                all_rows.extend(rows)
+                processed_frames.append(pd.DataFrame([asdict(row) for row in rows]))
                 success_count += 1
                 LOGGER.info("Extracted %d phoneme rows from %s", len(rows), metadata.recording_id)
+                # Persist after every recording so an interruption costs at most
+                # the single in-flight recording, and runs resume from disk.
+                _write_features_parquet(parquet_path, base_df, processed_frames)
             else:
                 failure_count += 1
         except Exception as e:
             LOGGER.exception("Failed to process %s: %s", metadata.recording_id, e)
             failure_count += 1
 
-    if not all_rows:
+    if not processed_frames:
         LOGGER.warning("No phoneme rows extracted from batch")
-        parquet_path = output_dir / PHONEME_PROSODY_FEATURES_FILENAME
-        empty_df = pd.DataFrame(columns=list(PhonemeRowData.__dataclass_fields__.keys()))
-        empty_df.to_parquet(parquet_path, index=False)
+        # Never clobber accumulated results when a batch yields nothing; only
+        # create the empty contract file if no output exists yet.
+        if not parquet_path.exists():
+            empty_df = pd.DataFrame(columns=list(PhonemeRowData.__dataclass_fields__.keys()))
+            empty_df.to_parquet(parquet_path, index=False)
         return parquet_path, success_count, failure_count
 
-    df = pd.DataFrame([asdict(row) for row in all_rows])
-    parquet_path = output_dir / PHONEME_PROSODY_FEATURES_FILENAME
-    df.to_parquet(parquet_path, index=False)
-    LOGGER.info("Wrote %d rows to %s", len(df), parquet_path)
-
     return parquet_path, success_count, failure_count
+
+
+def _load_existing_excluding(parquet_path: Path, exclude_ids: set[str]) -> pd.DataFrame | None:
+    """Load saved rows for recordings not in the current batch, or None."""
+    if not parquet_path.exists():
+        return None
+    try:
+        existing = pd.read_parquet(parquet_path)
+    except Exception as error:
+        LOGGER.warning("Could not read existing parquet (%s); starting fresh", error)
+        return None
+    if existing.empty:
+        return None
+    return existing[~existing["recordingId"].isin(exclude_ids)]
+
+
+def _write_features_parquet(
+    parquet_path: Path,
+    base_df: pd.DataFrame | None,
+    processed_frames: list[pd.DataFrame],
+) -> None:
+    """Atomically write base rows plus everything processed so far.
+
+    Writes to a temp file then renames so an interruption mid-write cannot leave
+    a partial/corrupt parquet behind.
+    """
+    frames = [frame for frame in ([base_df] if base_df is not None else []) + processed_frames]
+    combined = pd.concat(frames, ignore_index=True)
+    tmp_path = parquet_path.with_name(parquet_path.name + ".tmp")
+    combined.to_parquet(tmp_path, index=False)
+    tmp_path.replace(parquet_path)
 
 
 def _compute_file_hash(path: Path) -> str:

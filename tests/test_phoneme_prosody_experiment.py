@@ -38,6 +38,9 @@ from speech_feature_extraction.phoneme_prosody_experiment.rainbow_profile import
     build_rainbow_template,
     summarize_alignment_against_template,
 )
+from speech_feature_extraction.phoneme_prosody_experiment.pipeline import (
+    assess_recording_alignment,
+)
 from speech_feature_extraction.phoneme_prosody_experiment.schema import (
     PHONEME_PROSODY_EXPERIMENT_DATA_ROOT,
     PHONEME_PROSODY_RAINBOW_PROFILE_FIELDS,
@@ -56,7 +59,14 @@ from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
     PHONEME_CLASS_NASAL_COUPLED,
     PHONEME_CLASS_ORAL_ANTERIOR,
     PHONEME_CLASS_VOICELESS_FRICATION,
+    ARPABET_PHONEMES,
+    BROAD_OBSTRUENT,
+    BROAD_SONORANT,
+    GROUPING_UNKNOWN,
+    PHONEME_GROUPINGS,
+    PhonemeGrouping,
     classify_phoneme,
+    group_phoneme,
     derive_coarticulation_context,
     is_canonical_phoneme,
     normalize_phoneme_label,
@@ -140,6 +150,45 @@ def test_classify_phoneme_keeps_non_target_phone_as_granular_primary() -> None:
 
     assert classification.phoneme_class_primary == "R"
     assert classification.phoneme_class_tags == ()
+
+
+def test_group_phoneme_tags_consonant_dimensions() -> None:
+    grouping = group_phoneme("S0")
+
+    assert grouping == PhonemeGrouping(
+        phoneme_label="S",
+        manner="fricative",
+        place="alveolar",
+        voicing="voiceless",
+        height=None,
+        broad_class=BROAD_OBSTRUENT,
+    )
+
+
+def test_group_phoneme_tags_vowel_height_and_sonorant_broad_class() -> None:
+    grouping = group_phoneme("IY1")
+
+    assert grouping.manner == "vowel"
+    assert grouping.place == "front"
+    assert grouping.height == "high"
+    assert grouping.broad_class == BROAD_SONORANT
+
+
+def test_group_phoneme_returns_unknown_for_noncanonical_label() -> None:
+    grouping = group_phoneme("QQ")
+
+    assert grouping.manner == GROUPING_UNKNOWN
+    assert grouping.broad_class == GROUPING_UNKNOWN
+    assert grouping.height is None
+
+
+def test_phoneme_groupings_cover_full_arpabet_inventory() -> None:
+    assert set(PHONEME_GROUPINGS) == set(ARPABET_PHONEMES)
+
+
+def test_grouping_fields_present_in_required_schema() -> None:
+    for field in ("phonemeManner", "phonemePlace", "phonemeVoicing", "phonemeHeight", "phonemeBroadClass"):
+        assert field in PHONEME_PROSODY_REQUIRED_FIELDS
 
 
 def test_schema_fields_include_experiment_isolation_root_and_no_duplicates() -> None:
@@ -376,6 +425,75 @@ def test_compute_aggregates_uses_logrel_h1h2_fallback_column() -> None:
     features = _compute_aggregates(lld_frame)
     assert features.h1h2_mean is not None
     assert abs(features.h1h2_mean - 0.3) < 1e-9
+
+
+def test_compute_aggregates_excludes_unvoiced_frames_from_voiced_source() -> None:
+    import pandas as pd
+
+    # First two frames are unvoiced (F0 == 0) with diluting H1-H2/F1bw values.
+    # The voiced-only mean must ignore them and equal the mean of the voiced
+    # frames (10.0 for H1-H2, 60.0 for F1 bandwidth), while MFCC2 stays
+    # whole-segment.
+    lld_frame = pd.DataFrame(
+        {
+            "F0semitoneFrom27.5Hz_sma3nz": [0.0, 0.0, 100.0, 110.0, 120.0],
+            "mfcc2_sma3": [1.0, 1.0, 4.0, 4.0, 4.0],
+            "F1bandwidth_sma3nz": [0.0, 0.0, 60.0, 60.0, 60.0],
+            "H1-H2_sma3nz": [0.0, 0.0, 10.0, 10.0, 10.0],
+        }
+    )
+
+    features = _compute_aggregates(lld_frame)
+
+    assert abs(features.h1h2_mean - 10.0) < 1e-9
+    assert abs(features.f1_bandwidth_mean - 60.0) < 1e-9
+    assert features.qc_voiced_frames == 3
+    assert abs(features.mfcc2_mean - (1.0 + 1.0 + 4.0 + 4.0 + 4.0) / 5.0) < 1e-9
+
+
+def test_compute_aggregates_allows_negative_voiced_h1h2() -> None:
+    import pandas as pd
+
+    lld_frame = pd.DataFrame(
+        {
+            "F0semitoneFrom27.5Hz_sma3nz": [100.0, 110.0, 120.0, 130.0],
+            "mfcc2_sma3": [1.0, 2.0, 3.0, 4.0],
+            "F1bandwidth_sma3nz": [50.0, 51.0, 52.0, 53.0],
+            "H1-H2_sma3nz": [-2.0, -1.0, 1.0, 2.0],
+        }
+    )
+
+    features = _compute_aggregates(lld_frame)
+
+    assert abs(features.h1h2_mean - 0.0) < 1e-9
+
+
+def test_assess_recording_alignment_passes_canonical_inventory() -> None:
+    segments = [
+        AlignedPhonemeSegment(phoneme_label=phone, start_sec=i * 0.1, end_sec=i * 0.1 + 0.05)
+        for i, phone in enumerate(PROSODY_CANONICAL_ARPABET_SEQUENCE)
+    ]
+
+    qc = assess_recording_alignment(segments)
+
+    assert qc.ok is True
+    assert qc.coverage_ratio == 1.0
+    assert qc.unexpected_phones == 0
+
+
+def test_assess_recording_alignment_flags_unexpected_phones() -> None:
+    # "OY" is not in the sentences-2-3 inventory; an alignment that introduces
+    # it indicates wrong-content force-alignment and must fail QC.
+    segments = [
+        AlignedPhonemeSegment(phoneme_label="DH", start_sec=0.0, end_sec=0.05),
+        AlignedPhonemeSegment(phoneme_label="AH", start_sec=0.05, end_sec=0.10),
+        AlignedPhonemeSegment(phoneme_label="OY", start_sec=0.10, end_sec=0.15),
+    ]
+
+    qc = assess_recording_alignment(segments)
+
+    assert qc.ok is False
+    assert qc.unexpected_phones >= 1
 
 
 def test_compute_aggregates_honors_custom_min_frames_threshold() -> None:

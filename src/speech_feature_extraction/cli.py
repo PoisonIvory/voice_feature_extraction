@@ -112,7 +112,12 @@ def main() -> None:
     phoneme_parser.add_argument(
         "--limit",
         type=int,
-        help="Maximum number of recordings to process.",
+        help="Maximum number of recordings to process (after skipping already-done ones).",
+    )
+    phoneme_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Reprocess recordings even if they already exist in the output parquet.",
     )
     phoneme_parser.add_argument(
         "--check-only",
@@ -210,6 +215,25 @@ def _resolve_cli_user_id(parser: argparse.ArgumentParser, requested_user_id: str
     return requested_user_id
 
 
+def _existing_output_recording_ids(output_dir: Path) -> set[str]:
+    """Return recordingIds already present in the output parquet, if any."""
+    from speech_feature_extraction.phoneme_prosody_experiment.schema import (
+        PHONEME_PROSODY_FEATURES_FILENAME,
+    )
+
+    parquet_path = output_dir / PHONEME_PROSODY_FEATURES_FILENAME
+    if not parquet_path.exists():
+        return set()
+    try:
+        import pandas as pd
+
+        existing = pd.read_parquet(parquet_path, columns=["recordingId"])
+        return set(existing["recordingId"].unique())
+    except Exception as error:
+        LOGGER.warning("Could not read existing output parquet (%s); processing all", error)
+        return set()
+
+
 def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
     """Run experimental phoneme prosody extraction."""
     from speech_feature_extraction.phoneme_prosody_experiment.alignment import (
@@ -301,7 +325,20 @@ def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
         recording_ids = prosody_completed_ids
 
     # Task-type guard: only prosody recordings from the audit are ever processed.
-    wav_files = [f for f in audio_dir.glob("*.wav") if f.stem in recording_ids]
+    # Recursive so the default data/raw_audio reaches the prosody/ subdirectory;
+    # the recording_ids filter keeps non-prosody files out regardless of layout.
+    wav_files = [f for f in audio_dir.rglob("*.wav") if f.stem in recording_ids]
+
+    # Resumable chunked runs: skip recordings already in the output parquet so
+    # repeating the command processes the next chunk of remaining work.
+    if not args.force:
+        existing_ids = _existing_output_recording_ids(output_dir)
+        if existing_ids:
+            before = len(wav_files)
+            wav_files = [f for f in wav_files if f.stem not in existing_ids]
+            skipped = before - len(wav_files)
+            if skipped:
+                print(f"Skipping {skipped} already-processed recording(s); pass --force to redo")
 
     if args.limit:
         wav_files = wav_files[: args.limit]

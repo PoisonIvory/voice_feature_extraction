@@ -199,6 +199,21 @@ silently leaking into `phonemeLabel`.
 voiceless-frication), and a nasal `coarticulationContext` from the
 neighboring phones.
 
+`group_phoneme()` adds the middle grouping between the recording (wav) and the
+individual phoneme unit. It tags each phone on the standard phonological
+feature dimensions so analysis can roll phonemes up by whichever grouping is
+most informative (one column each, since the most predictive grouping is not
+known up front):
+
+- `phonemeManner`: stop, affricate, fricative, nasal, approximant, vowel, diphthong
+- `phonemePlace`: bilabial, labiodental, dental, alveolar, postalveolar, palatal, velar, glottal, labial-velar (front/central/back for vowels)
+- `phonemeVoicing`: voiced / voiceless
+- `phonemeHeight`: high / mid / low (vowels and diphthongs only; None otherwise)
+- `phonemeBroadClass`: obstruent / sonorant (coarsest standard grouping)
+
+Groupings are defined on the same canonical ARPAbet inventory as the rest of
+the module, so there is no parallel IPA scheme to reconcile.
+
 ---
 
 ### 3. `alignment.py` - MFA Integration

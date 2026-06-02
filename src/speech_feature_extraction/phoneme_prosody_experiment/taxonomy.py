@@ -262,3 +262,127 @@ def classify_phoneme(
         is_adjacent_to_nasal=is_adjacent_to_nasal,
         is_canonical=phone in ARPABET_PHONEMES,
     )
+
+
+# ── Articulatory grouping ───────────────────────────────────────────────
+# Middle grouping between the recording (wav) and the individual phoneme
+# unit. Each phoneme is tagged on the standard phonological feature
+# dimensions so downstream analysis can roll phonemes up by whichever
+# grouping turns out to be most informative.
+#
+# Dimensions (General American English):
+#   manner      type of airflow modulation
+#   place       constriction location (consonants) or backness (vowels)
+#   voicing     voiced / voiceless
+#   height      vowel height (vowels and diphthongs only; None otherwise)
+#   broad_class obstruent vs sonorant (coarsest standard grouping; derived)
+
+GROUPING_UNKNOWN = "unknown"
+
+MANNER_STOP = "stop"
+MANNER_AFFRICATE = "affricate"
+MANNER_FRICATIVE = "fricative"
+MANNER_NASAL = "nasal"
+MANNER_APPROXIMANT = "approximant"
+MANNER_VOWEL = "vowel"
+MANNER_DIPHTHONG = "diphthong"
+
+BROAD_OBSTRUENT = "obstruent"
+BROAD_SONORANT = "sonorant"
+
+OBSTRUENT_MANNERS = frozenset({MANNER_STOP, MANNER_AFFRICATE, MANNER_FRICATIVE})
+
+# ARPAbet phone → articulatory features. Keys match the normalized,
+# stress-free ARPAbet inventory above.
+PHONEME_GROUPINGS: dict[str, dict[str, str | None]] = {
+    # Stops
+    "P":  {"manner": MANNER_STOP,        "place": "bilabial",     "voicing": "voiceless", "height": None},
+    "B":  {"manner": MANNER_STOP,        "place": "bilabial",     "voicing": "voiced",    "height": None},
+    "T":  {"manner": MANNER_STOP,        "place": "alveolar",     "voicing": "voiceless", "height": None},
+    "D":  {"manner": MANNER_STOP,        "place": "alveolar",     "voicing": "voiced",    "height": None},
+    "K":  {"manner": MANNER_STOP,        "place": "velar",        "voicing": "voiceless", "height": None},
+    "G":  {"manner": MANNER_STOP,        "place": "velar",        "voicing": "voiced",    "height": None},
+    # Affricates
+    "CH": {"manner": MANNER_AFFRICATE,   "place": "postalveolar", "voicing": "voiceless", "height": None},
+    "JH": {"manner": MANNER_AFFRICATE,   "place": "postalveolar", "voicing": "voiced",    "height": None},
+    # Fricatives
+    "F":  {"manner": MANNER_FRICATIVE,   "place": "labiodental",  "voicing": "voiceless", "height": None},
+    "V":  {"manner": MANNER_FRICATIVE,   "place": "labiodental",  "voicing": "voiced",    "height": None},
+    "TH": {"manner": MANNER_FRICATIVE,   "place": "dental",       "voicing": "voiceless", "height": None},
+    "DH": {"manner": MANNER_FRICATIVE,   "place": "dental",       "voicing": "voiced",    "height": None},
+    "S":  {"manner": MANNER_FRICATIVE,   "place": "alveolar",     "voicing": "voiceless", "height": None},
+    "Z":  {"manner": MANNER_FRICATIVE,   "place": "alveolar",     "voicing": "voiced",    "height": None},
+    "SH": {"manner": MANNER_FRICATIVE,   "place": "postalveolar", "voicing": "voiceless", "height": None},
+    "ZH": {"manner": MANNER_FRICATIVE,   "place": "postalveolar", "voicing": "voiced",    "height": None},
+    "HH": {"manner": MANNER_FRICATIVE,   "place": "glottal",      "voicing": "voiceless", "height": None},
+    # Nasals
+    "M":  {"manner": MANNER_NASAL,       "place": "bilabial",     "voicing": "voiced",    "height": None},
+    "N":  {"manner": MANNER_NASAL,       "place": "alveolar",     "voicing": "voiced",    "height": None},
+    "NG": {"manner": MANNER_NASAL,       "place": "velar",        "voicing": "voiced",    "height": None},
+    # Approximants and liquids
+    "L":  {"manner": MANNER_APPROXIMANT, "place": "alveolar",     "voicing": "voiced",    "height": None},
+    "R":  {"manner": MANNER_APPROXIMANT, "place": "postalveolar", "voicing": "voiced",    "height": None},
+    "W":  {"manner": MANNER_APPROXIMANT, "place": "labial-velar", "voicing": "voiced",    "height": None},
+    "Y":  {"manner": MANNER_APPROXIMANT, "place": "palatal",      "voicing": "voiced",    "height": None},
+    # Monophthong vowels
+    "IY": {"manner": MANNER_VOWEL,       "place": "front",        "voicing": "voiced",    "height": "high"},
+    "IH": {"manner": MANNER_VOWEL,       "place": "front",        "voicing": "voiced",    "height": "high"},
+    "EH": {"manner": MANNER_VOWEL,       "place": "front",        "voicing": "voiced",    "height": "mid"},
+    "AE": {"manner": MANNER_VOWEL,       "place": "front",        "voicing": "voiced",    "height": "low"},
+    "AH": {"manner": MANNER_VOWEL,       "place": "central",      "voicing": "voiced",    "height": "mid"},
+    "ER": {"manner": MANNER_VOWEL,       "place": "central",      "voicing": "voiced",    "height": "mid"},
+    "AA": {"manner": MANNER_VOWEL,       "place": "back",         "voicing": "voiced",    "height": "low"},
+    "AO": {"manner": MANNER_VOWEL,       "place": "back",         "voicing": "voiced",    "height": "mid"},
+    "UH": {"manner": MANNER_VOWEL,       "place": "back",         "voicing": "voiced",    "height": "high"},
+    "UW": {"manner": MANNER_VOWEL,       "place": "back",         "voicing": "voiced",    "height": "high"},
+    # Diphthongs
+    "EY": {"manner": MANNER_DIPHTHONG,   "place": "front",        "voicing": "voiced",    "height": "mid"},
+    "AY": {"manner": MANNER_DIPHTHONG,   "place": "central",      "voicing": "voiced",    "height": "low"},
+    "OY": {"manner": MANNER_DIPHTHONG,   "place": "back",         "voicing": "voiced",    "height": "mid"},
+    "OW": {"manner": MANNER_DIPHTHONG,   "place": "back",         "voicing": "voiced",    "height": "mid"},
+    "AW": {"manner": MANNER_DIPHTHONG,   "place": "central",      "voicing": "voiced",    "height": "low"},
+}
+
+
+@dataclass(frozen=True)
+class PhonemeGrouping:
+    """Articulatory grouping for one phoneme across standard dimensions."""
+
+    phoneme_label: str
+    manner: str
+    place: str
+    voicing: str
+    height: str | None
+    broad_class: str
+
+
+def _broad_class_for_manner(manner: str) -> str:
+    if manner in OBSTRUENT_MANNERS:
+        return BROAD_OBSTRUENT
+    if manner == GROUPING_UNKNOWN:
+        return GROUPING_UNKNOWN
+    return BROAD_SONORANT
+
+
+def group_phoneme(label: str | None) -> PhonemeGrouping:
+    """Assign articulatory groupings (manner/place/voicing/height/broad)."""
+    phone = normalize_phoneme_label(label)
+    features = PHONEME_GROUPINGS.get(phone) if phone is not None else None
+    if phone is None or features is None:
+        return PhonemeGrouping(
+            phoneme_label=phone or "",
+            manner=GROUPING_UNKNOWN,
+            place=GROUPING_UNKNOWN,
+            voicing=GROUPING_UNKNOWN,
+            height=None,
+            broad_class=GROUPING_UNKNOWN,
+        )
+    manner = features["manner"] or GROUPING_UNKNOWN
+    return PhonemeGrouping(
+        phoneme_label=phone,
+        manner=manner,
+        place=features["place"] or GROUPING_UNKNOWN,
+        voicing=features["voicing"] or GROUPING_UNKNOWN,
+        height=features["height"],
+        broad_class=_broad_class_for_manner(manner),
+    )

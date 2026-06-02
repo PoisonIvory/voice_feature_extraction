@@ -220,6 +220,7 @@ def _compute_aggregates(
 
     voiced_frames = 0
     voiced_ratio = 0.0
+    voiced_mask: np.ndarray | None = None
     if f0_values is not None:
         voiced_mask = f0_values > 0
         voiced_frames = int(np.sum(voiced_mask))
@@ -228,13 +229,19 @@ def _compute_aggregates(
     qc_ok = total_frames >= min_frames_for_variance
     qc_reason = "ok" if qc_ok else "insufficient_frames"
 
+    # Voiced-source descriptors (H1-H2, F1 bandwidth) are only defined on
+    # voiced frames. openSMILE reports 0 / non-physical values when F0 == 0, so
+    # averaging across unvoiced frames dilutes the segment estimate. We restrict
+    # them to the F0>0 mask rather than the feature's own >0 (H1-H2 can be
+    # legitimately negative). MFCC2 is spectral-envelope based and stays
+    # whole-segment; F0 already uses voiced-only means.
     return SegmentFeatures(
         mfcc2_mean=_safe_mean(mfcc2_values),
         mfcc2_median=_safe_median(mfcc2_values),
-        h1h2_mean=_safe_mean(h1h2_values),
-        h1h2_median=_safe_median(h1h2_values),
-        f1_bandwidth_mean=_safe_mean(f1_bw_values),
-        f1_bandwidth_median=_safe_median(f1_bw_values),
+        h1h2_mean=_safe_mean_masked(h1h2_values, voiced_mask),
+        h1h2_median=_safe_median_masked(h1h2_values, voiced_mask),
+        f1_bandwidth_mean=_safe_mean_masked(f1_bw_values, voiced_mask),
+        f1_bandwidth_median=_safe_median_masked(f1_bw_values, voiced_mask),
         f0_mean=_safe_mean_voiced(f0_values),
         f0_median=_safe_median_voiced(f0_values),
         qc_segment_ok=qc_ok,
@@ -272,6 +279,46 @@ def _safe_median(values: np.ndarray | None) -> float | None:
     if len(finite_values) == 0:
         return None
     result = float(np.median(finite_values))
+    return result if np.isfinite(result) else None
+
+
+def _apply_voiced_mask(
+    values: np.ndarray | None, voiced_mask: np.ndarray | None
+) -> np.ndarray | None:
+    """Restrict values to voiced (F0>0) frames, then to finite entries.
+
+    Falls back to all finite frames when no voiced mask is available so the
+    descriptor still resolves rather than going None.
+    """
+    if values is None or len(values) == 0:
+        return None
+    if voiced_mask is not None and len(voiced_mask) == len(values):
+        values = values[voiced_mask]
+    finite_values = values[np.isfinite(values)]
+    if len(finite_values) == 0:
+        return None
+    return finite_values
+
+
+def _safe_mean_masked(
+    values: np.ndarray | None, voiced_mask: np.ndarray | None
+) -> float | None:
+    """Compute mean over voiced frames only, returning None if invalid."""
+    masked = _apply_voiced_mask(values, voiced_mask)
+    if masked is None:
+        return None
+    result = float(np.mean(masked))
+    return result if np.isfinite(result) else None
+
+
+def _safe_median_masked(
+    values: np.ndarray | None, voiced_mask: np.ndarray | None
+) -> float | None:
+    """Compute median over voiced frames only, returning None if invalid."""
+    masked = _apply_voiced_mask(values, voiced_mask)
+    if masked is None:
+        return None
+    result = float(np.median(masked))
     return result if np.isfinite(result) else None
 
 
