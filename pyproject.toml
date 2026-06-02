@@ -21,6 +21,14 @@ dependencies = [
 dev = [
   "pytest",
 ]
+# Frozen self-supervised speech model backend for the phonological-subspace
+# d-prime experiment (Muller et al. 2026). Kept optional because torch is heavy
+# and only the HuBERT path needs it; the rest of the pipeline imports without it.
+hubert = [
+  "torch>=2.0",
+  "torchaudio>=2.0",
+  "transformers>=4.30",
+]
 
 [project.scripts]
 extract-speech-features = "speech_feature_extraction.cli:main"

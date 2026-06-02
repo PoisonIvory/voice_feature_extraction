@@ -34,6 +34,7 @@ from speech_feature_extraction.phoneme_prosody_experiment.rainbow_profile import
 )
 from speech_feature_extraction.phoneme_prosody_experiment.schema import (
     PHONEME_PROSODY_FEATURES_FILENAME,
+    PHONEME_PROSODY_REQUIRED_FIELDS,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.segment_features import (
     DEFAULT_TRIM_POLICY_MS,
@@ -47,7 +48,7 @@ from speech_feature_extraction.phoneme_prosody_experiment.taxonomy import (
 
 LOGGER = logging.getLogger(__name__)
 
-EXTRACTOR_VERSION = "phoneme_prosody_v2"
+EXTRACTOR_VERSION = "phoneme_prosody_v3"
 
 
 @dataclass
@@ -96,11 +97,6 @@ class PhonemeRowData:
     phonemeVoicing: str
     phonemeHeight: str | None
     phonemeBroadClass: str
-    # Features
-    segment_mfcc2_mean: float | None
-    segment_h1h2_mean: float | None
-    segment_f1_bandwidth_mean: float | None
-    segment_f0_mean: float | None
     # QC
     qc_segment_ok: bool
     qc_segment_reason: str
@@ -178,7 +174,7 @@ def process_recording(
     alignments_dir: Path,
     feature_extractor: SegmentFeatureExtractor | None = None,
     rainbow_template: Any | None = None,
-) -> list[PhonemeRowData]:
+) -> list[dict[str, Any]]:
     """Process a single recording through the full pipeline.
 
     Args:
@@ -218,7 +214,7 @@ def process_recording(
 
     occurrence_map = _build_occurrence_alignment_map(alignment.segments, rainbow_template)
 
-    rows: list[PhonemeRowData] = []
+    rows: list[dict[str, Any]] = []
     segments = list(alignment.segments)
 
     recording_qc = assess_recording_alignment(segments)
@@ -296,10 +292,6 @@ def process_recording(
             phonemeVoicing=grouping.voicing,
             phonemeHeight=grouping.height,
             phonemeBroadClass=grouping.broad_class,
-            segment_mfcc2_mean=features.mfcc2_mean,
-            segment_h1h2_mean=features.h1h2_mean,
-            segment_f1_bandwidth_mean=features.f1_bandwidth_mean,
-            segment_f0_mean=features.f0_mean,
             qc_segment_ok=features.qc_segment_ok,
             qc_segment_reason=features.qc_segment_reason,
             qc_numFrames=features.qc_num_frames,
@@ -309,7 +301,7 @@ def process_recording(
             qc_recording_unexpected_phones=recording_qc.unexpected_phones,
             qc_recording_ok=recording_qc.ok,
         )
-        rows.append(row)
+        rows.append({**asdict(row), **features.feature_values})
 
     return rows
 
@@ -357,7 +349,7 @@ def process_batch(
                 feature_extractor=feature_extractor,
             )
             if rows:
-                processed_frames.append(pd.DataFrame([asdict(row) for row in rows]))
+                processed_frames.append(pd.DataFrame(rows))
                 success_count += 1
                 LOGGER.info("Extracted %d phoneme rows from %s", len(rows), metadata.recording_id)
                 # Persist after every recording so an interruption costs at most
@@ -374,7 +366,7 @@ def process_batch(
         # Never clobber accumulated results when a batch yields nothing; only
         # create the empty contract file if no output exists yet.
         if not parquet_path.exists():
-            empty_df = pd.DataFrame(columns=list(PhonemeRowData.__dataclass_fields__.keys()))
+            empty_df = pd.DataFrame(columns=list(PHONEME_PROSODY_REQUIRED_FIELDS))
             empty_df.to_parquet(parquet_path, index=False)
         return parquet_path, success_count, failure_count
 

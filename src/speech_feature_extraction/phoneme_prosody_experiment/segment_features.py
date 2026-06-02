@@ -10,11 +10,18 @@ This module handles:
 from __future__ import annotations
 
 import importlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+
+from speech_feature_extraction.phoneme_prosody_experiment.schema import (
+    AGGREGATE_STATS,
+    EGEMAPS_LLD_NAMES,
+    PHONEME_PROSODY_FEATURE_VALUE_FIELDS,
+    lld_value_field,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -31,6 +38,12 @@ MIN_ANALYSIS_DURATION_SEC = 0.030
 # formant/spectral measurement (Eyben et al. eGeMAPS; vowel-formant studies).
 MIN_FRAMES_FOR_VARIANCE = 4
 LLD_HOP_SIZE_SEC = 0.010
+
+F0_LLD_NAME = "F0semitoneFrom27.5Hz_sma3nz"
+
+
+def _empty_feature_values() -> dict[str, float | None]:
+    return {name: None for name in PHONEME_PROSODY_FEATURE_VALUE_FIELDS}
 
 
 @dataclass(frozen=True)
@@ -49,20 +62,13 @@ class SegmentBoundaries:
 class SegmentFeatures:
     """Extracted features and QC metrics for one phoneme segment."""
 
-    mfcc2_mean: float | None
-    mfcc2_median: float | None
-    h1h2_mean: float | None
-    h1h2_median: float | None
-    f1_bandwidth_mean: float | None
-    f1_bandwidth_median: float | None
-    f0_mean: float | None
-    f0_median: float | None
-    qc_segment_ok: bool
-    qc_segment_reason: str
-    qc_num_frames: int
-    qc_min_frames_required: int
-    qc_voiced_frames: int
-    qc_voiced_ratio: float
+    feature_values: dict[str, float | None] = field(default_factory=_empty_feature_values)
+    qc_segment_ok: bool = False
+    qc_segment_reason: str = "segment_too_short"
+    qc_num_frames: int = 0
+    qc_min_frames_required: int = MIN_FRAMES_FOR_VARIANCE
+    qc_voiced_frames: int = 0
+    qc_voiced_ratio: float = 0.0
 
 
 def compute_segment_boundaries(
@@ -134,6 +140,12 @@ class SegmentFeatureExtractor:
             channels=0,
             mixdown=False,
         )
+        runtime_names = list(self._smile_lld.feature_names)
+        if runtime_names != list(EGEMAPS_LLD_NAMES):
+            raise ValueError(
+                f"openSMILE LLD schema mismatch: runtime={runtime_names!r} "
+                f"expected={list(EGEMAPS_LLD_NAMES)!r}"
+            )
 
     @property
     def lld_feature_names(self) -> list[str]:
@@ -204,20 +216,7 @@ def _compute_aggregates(
     """Compute robust aggregates from LLD frame data."""
     total_frames = len(lld_frame)
 
-    f0_col = "F0semitoneFrom27.5Hz_sma3nz"
-    mfcc2_col = "mfcc2_sma3"
-    f1_bw_col = "F1bandwidth_sma3nz"
-    h1h2_col = "H1-H2_sma3nz"
-    h1h2_legacy_col = "logRelF0-H1-H2_sma3nz"
-
-    f0_values = _get_column(lld_frame, f0_col)
-    mfcc2_values = _get_column(lld_frame, mfcc2_col)
-    f1_bw_values = _get_column(lld_frame, f1_bw_col)
-    h1h2_values = _get_column(lld_frame, h1h2_col)
-    if h1h2_values is None:
-        # openSMILE commonly exposes the eGeMAPSv02 H1-H2 proxy as logRelF0-H1-H2.
-        h1h2_values = _get_column(lld_frame, h1h2_legacy_col)
-
+    f0_values = _get_column(lld_frame, F0_LLD_NAME)
     voiced_frames = 0
     voiced_ratio = 0.0
     voiced_mask: np.ndarray | None = None
@@ -229,21 +228,33 @@ def _compute_aggregates(
     qc_ok = total_frames >= min_frames_for_variance
     qc_reason = "ok" if qc_ok else "insufficient_frames"
 
-    # Voiced-source descriptors (H1-H2, F1 bandwidth) are only defined on
-    # voiced frames. openSMILE reports 0 / non-physical values when F0 == 0, so
-    # averaging across unvoiced frames dilutes the segment estimate. We restrict
-    # them to the F0>0 mask rather than the feature's own >0 (H1-H2 can be
-    # legitimately negative). MFCC2 is spectral-envelope based and stays
-    # whole-segment; F0 already uses voiced-only means.
+    feature_values: dict[str, float | None] = {}
+    for lld_name in EGEMAPS_LLD_NAMES:
+        values = _get_column(lld_frame, lld_name)
+        use_voiced_mask = lld_name.endswith("_sma3nz")
+        for stat in AGGREGATE_STATS:
+            field_name = lld_value_field(lld_name, stat)
+            if stat == "mean":
+                feature_values[field_name] = (
+                    _safe_mean_masked(values, voiced_mask)
+                    if use_voiced_mask
+                    else _safe_mean(values)
+                )
+            elif stat == "median":
+                feature_values[field_name] = (
+                    _safe_median_masked(values, voiced_mask)
+                    if use_voiced_mask
+                    else _safe_median(values)
+                )
+            else:
+                feature_values[field_name] = (
+                    _safe_std_masked(values, voiced_mask)
+                    if use_voiced_mask
+                    else _safe_std(values)
+                )
+
     return SegmentFeatures(
-        mfcc2_mean=_safe_mean(mfcc2_values),
-        mfcc2_median=_safe_median(mfcc2_values),
-        h1h2_mean=_safe_mean_masked(h1h2_values, voiced_mask),
-        h1h2_median=_safe_median_masked(h1h2_values, voiced_mask),
-        f1_bandwidth_mean=_safe_mean_masked(f1_bw_values, voiced_mask),
-        f1_bandwidth_median=_safe_median_masked(f1_bw_values, voiced_mask),
-        f0_mean=_safe_mean_voiced(f0_values),
-        f0_median=_safe_median_voiced(f0_values),
+        feature_values=feature_values,
         qc_segment_ok=qc_ok,
         qc_segment_reason=qc_reason,
         qc_num_frames=total_frames,
@@ -279,6 +290,17 @@ def _safe_median(values: np.ndarray | None) -> float | None:
     if len(finite_values) == 0:
         return None
     result = float(np.median(finite_values))
+    return result if np.isfinite(result) else None
+
+
+def _safe_std(values: np.ndarray | None) -> float | None:
+    """Compute sample std (ddof=1), returning None if fewer than 2 finite frames."""
+    if values is None or len(values) == 0:
+        return None
+    finite_values = values[np.isfinite(values)]
+    if len(finite_values) < 2:
+        return None
+    result = float(np.std(finite_values, ddof=1))
     return result if np.isfinite(result) else None
 
 
@@ -322,39 +344,21 @@ def _safe_median_masked(
     return result if np.isfinite(result) else None
 
 
-def _safe_mean_voiced(values: np.ndarray | None) -> float | None:
-    """Compute mean of voiced (non-zero) values only."""
-    if values is None or len(values) == 0:
+def _safe_std_masked(
+    values: np.ndarray | None, voiced_mask: np.ndarray | None
+) -> float | None:
+    """Compute sample std over voiced frames only, returning None if invalid."""
+    masked = _apply_voiced_mask(values, voiced_mask)
+    if masked is None or len(masked) < 2:
         return None
-    voiced = values[values > 0]
-    if len(voiced) == 0:
-        return None
-    result = float(np.mean(voiced))
-    return result if np.isfinite(result) else None
-
-
-def _safe_median_voiced(values: np.ndarray | None) -> float | None:
-    """Compute median of voiced (non-zero) values only."""
-    if values is None or len(values) == 0:
-        return None
-    voiced = values[values > 0]
-    if len(voiced) == 0:
-        return None
-    result = float(np.median(voiced))
+    result = float(np.std(masked, ddof=1))
     return result if np.isfinite(result) else None
 
 
 def _empty_features(reason: str, min_frames_for_variance: int) -> SegmentFeatures:
     """Return empty features with failure reason."""
     return SegmentFeatures(
-        mfcc2_mean=None,
-        mfcc2_median=None,
-        h1h2_mean=None,
-        h1h2_median=None,
-        f1_bandwidth_mean=None,
-        f1_bandwidth_median=None,
-        f0_mean=None,
-        f0_median=None,
+        feature_values=_empty_feature_values(),
         qc_segment_ok=False,
         qc_segment_reason=reason,
         qc_num_frames=0,

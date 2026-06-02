@@ -43,8 +43,10 @@ from speech_feature_extraction.phoneme_prosody_experiment.pipeline import (
 )
 from speech_feature_extraction.phoneme_prosody_experiment.schema import (
     PHONEME_PROSODY_EXPERIMENT_DATA_ROOT,
+    PHONEME_PROSODY_FEATURE_VALUE_FIELDS,
     PHONEME_PROSODY_RAINBOW_PROFILE_FIELDS,
     PHONEME_PROSODY_REQUIRED_FIELDS,
+    lld_value_field,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.segment_features import (
     MIN_ANALYSIS_DURATION_SEC,
@@ -194,8 +196,11 @@ def test_grouping_fields_present_in_required_schema() -> None:
 def test_schema_fields_include_experiment_isolation_root_and_no_duplicates() -> None:
     assert PHONEME_PROSODY_EXPERIMENT_DATA_ROOT == "data/experimental/phoneme_prosody"
     assert len(PHONEME_PROSODY_REQUIRED_FIELDS) == len(set(PHONEME_PROSODY_REQUIRED_FIELDS))
+    assert len(PHONEME_PROSODY_FEATURE_VALUE_FIELDS) == 75
     assert "coarticulationContext" in PHONEME_PROSODY_REQUIRED_FIELDS
     assert "phonemeClassTags" in PHONEME_PROSODY_REQUIRED_FIELDS
+    assert "segment_mfcc2_mean" in PHONEME_PROSODY_FEATURE_VALUE_FIELDS
+    assert "segment_F0semitoneFrom27_5Hz_mean" in PHONEME_PROSODY_FEATURE_VALUE_FIELDS
     assert "rainbowExpectedPositionRatio" in PHONEME_PROSODY_RAINBOW_PROFILE_FIELDS
 
 
@@ -410,7 +415,7 @@ def test_assess_segment_quality_uses_custom_thresholds() -> None:
     assert assessment.quality == QUALITY_POOR
 
 
-def test_compute_aggregates_uses_logrel_h1h2_fallback_column() -> None:
+def test_compute_aggregates_uses_logrel_h1h2_column() -> None:
     import pandas as pd
 
     lld_frame = pd.DataFrame(
@@ -423,8 +428,9 @@ def test_compute_aggregates_uses_logrel_h1h2_fallback_column() -> None:
     )
 
     features = _compute_aggregates(lld_frame)
-    assert features.h1h2_mean is not None
-    assert abs(features.h1h2_mean - 0.3) < 1e-9
+    h1h2_mean = features.feature_values["segment_logRelF0_H1_H2_mean"]
+    assert h1h2_mean is not None
+    assert abs(h1h2_mean - 0.3) < 1e-9
 
 
 def test_compute_aggregates_excludes_unvoiced_frames_from_voiced_source() -> None:
@@ -439,16 +445,16 @@ def test_compute_aggregates_excludes_unvoiced_frames_from_voiced_source() -> Non
             "F0semitoneFrom27.5Hz_sma3nz": [0.0, 0.0, 100.0, 110.0, 120.0],
             "mfcc2_sma3": [1.0, 1.0, 4.0, 4.0, 4.0],
             "F1bandwidth_sma3nz": [0.0, 0.0, 60.0, 60.0, 60.0],
-            "H1-H2_sma3nz": [0.0, 0.0, 10.0, 10.0, 10.0],
+            "logRelF0-H1-H2_sma3nz": [0.0, 0.0, 10.0, 10.0, 10.0],
         }
     )
 
     features = _compute_aggregates(lld_frame)
 
-    assert abs(features.h1h2_mean - 10.0) < 1e-9
-    assert abs(features.f1_bandwidth_mean - 60.0) < 1e-9
+    assert abs(features.feature_values["segment_logRelF0_H1_H2_mean"] - 10.0) < 1e-9
+    assert abs(features.feature_values["segment_F1bandwidth_mean"] - 60.0) < 1e-9
     assert features.qc_voiced_frames == 3
-    assert abs(features.mfcc2_mean - (1.0 + 1.0 + 4.0 + 4.0 + 4.0) / 5.0) < 1e-9
+    assert abs(features.feature_values["segment_mfcc2_mean"] - (1.0 + 1.0 + 4.0 + 4.0 + 4.0) / 5.0) < 1e-9
 
 
 def test_compute_aggregates_allows_negative_voiced_h1h2() -> None:
@@ -459,13 +465,69 @@ def test_compute_aggregates_allows_negative_voiced_h1h2() -> None:
             "F0semitoneFrom27.5Hz_sma3nz": [100.0, 110.0, 120.0, 130.0],
             "mfcc2_sma3": [1.0, 2.0, 3.0, 4.0],
             "F1bandwidth_sma3nz": [50.0, 51.0, 52.0, 53.0],
-            "H1-H2_sma3nz": [-2.0, -1.0, 1.0, 2.0],
+            "logRelF0-H1-H2_sma3nz": [-2.0, -1.0, 1.0, 2.0],
         }
     )
 
     features = _compute_aggregates(lld_frame)
 
-    assert abs(features.h1h2_mean - 0.0) < 1e-9
+    assert abs(features.feature_values["segment_logRelF0_H1_H2_mean"] - 0.0) < 1e-9
+
+
+def test_compute_aggregates_emits_all_feature_fields() -> None:
+    import pandas as pd
+
+    lld_frame = pd.DataFrame(
+        {
+            "F0semitoneFrom27.5Hz_sma3nz": [100.0, 110.0, 120.0, 130.0],
+            "mfcc2_sma3": [1.0, 2.0, 3.0, 4.0],
+            "F1bandwidth_sma3nz": [50.0, 51.0, 52.0, 53.0],
+            "logRelF0-H1-H2_sma3nz": [0.1, 0.2, 0.3, 0.4],
+        }
+    )
+
+    features = _compute_aggregates(lld_frame)
+
+    assert len(features.feature_values) == len(PHONEME_PROSODY_FEATURE_VALUE_FIELDS)
+    assert set(features.feature_values) == set(PHONEME_PROSODY_FEATURE_VALUE_FIELDS)
+
+
+def test_compute_aggregates_std_requires_two_frames() -> None:
+    import pandas as pd
+
+    lld_frame = pd.DataFrame(
+        {
+            "F0semitoneFrom27.5Hz_sma3nz": [100.0],
+            "mfcc2_sma3": [1.0],
+        }
+    )
+
+    features = _compute_aggregates(lld_frame, min_frames_for_variance=1)
+
+    assert features.feature_values["segment_mfcc2_std"] is None
+    assert features.feature_values["segment_mfcc2_mean"] == 1.0
+
+
+def test_compute_aggregates_std_computed_for_multiple_frames() -> None:
+    import pandas as pd
+
+    lld_frame = pd.DataFrame(
+        {
+            "F0semitoneFrom27.5Hz_sma3nz": [100.0, 110.0, 120.0],
+            "mfcc2_sma3": [1.0, 2.0, 3.0],
+        }
+    )
+
+    features = _compute_aggregates(lld_frame)
+
+    assert abs(features.feature_values["segment_mfcc2_std"] - 1.0) < 1e-9
+
+
+def test_lld_value_field_naming() -> None:
+    assert lld_value_field("mfcc2_sma3", "mean") == "segment_mfcc2_mean"
+    assert lld_value_field("F0semitoneFrom27.5Hz_sma3nz", "mean") == "segment_F0semitoneFrom27_5Hz_mean"
+    assert lld_value_field("logRelF0-H1-H2_sma3nz", "median") == "segment_logRelF0_H1_H2_median"
+    assert lld_value_field("F1bandwidth_sma3nz", "std") == "segment_F1bandwidth_std"
 
 
 def test_assess_recording_alignment_passes_canonical_inventory() -> None:

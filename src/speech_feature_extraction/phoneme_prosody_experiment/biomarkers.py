@@ -18,6 +18,12 @@ if TYPE_CHECKING:
 
 MIN_OBSERVATIONS_FOR_RELIABLE_MEAN = 5
 
+# Primary v3 segment columns used by the longitudinal biomarker helpers.
+SEGMENT_MFCC2_MEAN = "segment_mfcc2_mean"
+SEGMENT_H1H2_MEAN = "segment_logRelF0_H1_H2_mean"
+SEGMENT_F1_BANDWIDTH_MEAN = "segment_F1bandwidth_mean"
+SEGMENT_F0_MEAN = "segment_F0semitoneFrom27_5Hz_mean"
+
 
 @dataclass(frozen=True)
 class DailyPhonemeAggregate:
@@ -58,7 +64,7 @@ def compute_daily_phoneme_aggregates(
     Args:
         features_df: DataFrame with segment-level features.
             Required columns: userId, recordedDate, phonemeLabel,
-            segment_mfcc2_mean, qc_segment_ok
+            segment_mfcc2_mean (v3: segment_mfcc2_mean), qc_segment_ok
 
     Returns:
         List of DailyPhonemeAggregate objects.
@@ -67,7 +73,7 @@ def compute_daily_phoneme_aggregates(
         "userId",
         "recordedDate",
         "phonemeLabel",
-        "segment_mfcc2_mean",
+        SEGMENT_MFCC2_MEAN,
         "qc_segment_ok",
     ]
     for col in required_cols:
@@ -89,10 +95,10 @@ def compute_daily_phoneme_aggregates(
                 user_id=str(user_id),
                 recorded_date=str(date),
                 phoneme_label=str(phoneme),
-                mfcc2_mean=_safe_mean(group.get("segment_mfcc2_mean")),
-                h1h2_mean=_safe_mean(group.get("segment_h1h2_mean")),
-                f1_bandwidth_mean=_safe_mean(group.get("segment_f1_bandwidth_mean")),
-                f0_mean=_safe_mean(group.get("segment_f0_mean")),
+                mfcc2_mean=_safe_mean(group.get(SEGMENT_MFCC2_MEAN)),
+                h1h2_mean=_safe_mean(group.get(SEGMENT_H1H2_MEAN)),
+                f1_bandwidth_mean=_safe_mean(group.get(SEGMENT_F1_BANDWIDTH_MEAN)),
+                f0_mean=_safe_mean(group.get(SEGMENT_F0_MEAN)),
                 observation_count=count,
                 qc_reliable=reliable,
                 qc_reason=reason,

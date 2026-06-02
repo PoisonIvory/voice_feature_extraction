@@ -154,9 +154,9 @@ classDiagram
     }
     
     class FeatureFields {
-        segment_mfcc2_mean
-        segment_h1h2_mean
-        segment_f1_bandwidth_mean
+        segment_* (75 cols)
+        25 eGeMAPSv02 LLDs
+        mean, median, std each
     }
     
     OutputSchema --> LineageFields
@@ -314,14 +314,13 @@ flowchart TB
         B --> D[Analysis Window]
         T --> F[Select frames with center in window]
         D --> F
-        F --> I[Compute Aggregates<br/>Mean, Median]
+        F --> I[Compute Aggregates<br/>Mean, Median, Std]
     end
 
-    subgraph "Output Features"
-        I --> J[MFCC2: Spectral shape]
-        I --> K[H1-H2: Voice quality]
-        I --> L[F1 Bandwidth: Formant precision]
-        I --> M[F0: Pitch]
+    subgraph "Output Features (v3)"
+        I --> J[25 eGeMAPSv02 LLDs<br/>75 columns total]
+        I --> K[_sma3nz: voiced-only<br/>F0, formants, jitter, shimmer, HNR]
+        I --> L[_sma3: whole-segment<br/>loudness, spectral, MFCCs]
     end
 ```
 
@@ -331,14 +330,22 @@ At phoneme transitions the acoustic signal is "blended" between sounds, so an op
 
 **Why a 4-frame minimum?** At a 10 ms hop, 4 frames = 40 ms, the minimum phoneme duration for reliable formant/spectral measurement in the phonetics literature (30 ms is only the forced-alignment floor). Shorter phones still get features computed but are flagged `qc_segment_ok = False`.
 
-**Key features extracted**:
+**Key features extracted (v3)**:
 
-| Feature | What It Measures | Clinical Relevance |
-|---------|------------------|-------------------|
-| MFCC2 | Spectral envelope shape | Changes with resonance patterns |
-| H1-H2 | Breathiness/pressed voice | Voice quality changes |
-| F1 Bandwidth | First formant precision | Articulatory precision |
-| F0 | Fundamental frequency | Pitch control |
+All 25 eGeMAPSv02 Low-Level Descriptors are aggregated per phoneme with mean, median, and std (75 feature columns). Column names follow `segment_<lld_stem>_<stat>`, derived from the openSMILE LLD name (e.g. `segment_mfcc2_mean`, `segment_logRelF0_H1_H2_mean`, `segment_F0semitoneFrom27_5Hz_mean`).
+
+Voiced-mask policy is suffix-driven:
+- `_sma3nz` LLDs (F0, jitter, shimmer, HNR, H1-H2, H1-A3, F1/F2/F3 frequency/bandwidth/amplitude): aggregated over voiced frames only (F0 > 0)
+- `_sma3` LLDs (loudness, alphaRatio, hammarbergIndex, spectral slopes, spectralFlux, mfcc1-4): aggregated over the whole segment
+
+Representative examples:
+
+| Feature column | What It Measures | Clinical Relevance |
+|----------------|------------------|-------------------|
+| segment_mfcc2_mean | Spectral envelope shape | Changes with resonance patterns |
+| segment_logRelF0_H1_H2_mean | Breathiness/pressed voice | Voice quality changes |
+| segment_F1bandwidth_mean | First formant precision | Articulatory precision |
+| segment_F0semitoneFrom27_5Hz_mean | Fundamental frequency | Pitch control |
 
 ---
 
@@ -489,7 +496,7 @@ flowchart TB
     
     subgraph "Stage 4: Output"
         J[PhonemeRowData Objects]
-        K[prosody_phoneme_features.parquet]
+        K[prosody_phoneme_features_v3.parquet]
     end
     
     subgraph "Stage 5: Aggregates"
@@ -550,11 +557,13 @@ classDiagram
         +str prevPhonemeLabel
         +str nextPhonemeLabel
         
-        %% Features
+        %% Features (75 columns: 25 LLDs x mean/median/std)
+        +dict feature_values merged at write time
         +float segment_mfcc2_mean
-        +float segment_h1h2_mean
-        +float segment_f1_bandwidth_mean
-        +float segment_f0_mean
+        +float segment_logRelF0_H1_H2_mean
+        +float segment_F1bandwidth_mean
+        +float segment_F0semitoneFrom27_5Hz_mean
+        +float segment_* (71 more)
         
         %% QC
         +bool qc_segment_ok
@@ -658,11 +667,11 @@ rows = process_recording(
     alignments_dir=Path("/output/alignments"),
 )
 
-# 3. Each row is one phoneme with full features
+# 3. Each row is one phoneme with full features (dict)
 for row in rows[:5]:
-    print(f"{row.phonemeLabel}: {row.startSec:.3f}s - {row.endSec:.3f}s")
-    print(f"  MFCC2: {row.segment_mfcc2_mean}")
-    print(f"  Quality: {row.alignmentQuality}")
+    print(f"{row['phonemeLabel']}: {row['startSec']:.3f}s - {row['endSec']:.3f}s")
+    print(f"  MFCC2: {row['segment_mfcc2_mean']}")
+    print(f"  Quality: {row['alignmentQuality']}")
 ```
 
 ### Example: Computing Trajectories
@@ -675,7 +684,7 @@ from speech_feature_extraction.phoneme_prosody_experiment import (
 )
 
 # Load the extracted features
-df = pd.read_parquet("prosody_phoneme_features.parquet")
+df = pd.read_parquet("prosody_phoneme_features_v3.parquet")
 
 # Daily aggregates per phoneme
 daily_phonemes = compute_daily_phoneme_aggregates(df)

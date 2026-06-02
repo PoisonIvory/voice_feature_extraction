@@ -1,7 +1,50 @@
 """Schema primitives for the isolated prosody phoneme experiment dataset."""
 
 PHONEME_PROSODY_EXPERIMENT_DATA_ROOT = "data/experimental/phoneme_prosody"
-PHONEME_PROSODY_FEATURES_FILENAME = "prosody_phoneme_features.parquet"
+PHONEME_PROSODY_FEATURES_FILENAME = "prosody_phoneme_features_v3.parquet"
+
+# HuBERT phonological-subspace experiment outputs (parallel to the eGeMAPS
+# phoneme features, sharing the same MFA boundaries).
+HUBERT_PHONE_EMBEDDINGS_FILENAME = "hubert_phone_embeddings.parquet"
+HUBERT_DPRIME_FILENAME = "hubert_dprime_by_recording.parquet"
+
+# Canonical eGeMAPSv02 Low-Level Descriptor names (openSMILE order).
+EGEMAPS_LLD_NAMES = (
+    "Loudness_sma3",
+    "alphaRatio_sma3",
+    "hammarbergIndex_sma3",
+    "slope0-500_sma3",
+    "slope500-1500_sma3",
+    "spectralFlux_sma3",
+    "mfcc1_sma3",
+    "mfcc2_sma3",
+    "mfcc3_sma3",
+    "mfcc4_sma3",
+    "F0semitoneFrom27.5Hz_sma3nz",
+    "jitterLocal_sma3nz",
+    "shimmerLocaldB_sma3nz",
+    "HNRdBACF_sma3nz",
+    "logRelF0-H1-H2_sma3nz",
+    "logRelF0-H1-A3_sma3nz",
+    "F1frequency_sma3nz",
+    "F1bandwidth_sma3nz",
+    "F1amplitudeLogRelF0_sma3nz",
+    "F2frequency_sma3nz",
+    "F2bandwidth_sma3nz",
+    "F2amplitudeLogRelF0_sma3nz",
+    "F3frequency_sma3nz",
+    "F3bandwidth_sma3nz",
+    "F3amplitudeLogRelF0_sma3nz",
+)
+
+AGGREGATE_STATS = ("mean", "median", "std")
+
+
+def lld_value_field(lld_name: str, stat: str) -> str:
+    """Map an openSMILE LLD column name to a parquet feature field."""
+    stem = lld_name.removesuffix("_sma3nz").removesuffix("_sma3")
+    stem = stem.replace(".", "_").replace("-", "_")
+    return f"segment_{stem}_{stat}"
 
 PHONEME_PROSODY_LINEAGE_FIELDS = (
     "recordingId",
@@ -64,11 +107,10 @@ PHONEME_PROSODY_GROUPING_FIELDS = (
     "phonemeBroadClass",
 )
 
-PHONEME_PROSODY_FEATURE_VALUE_FIELDS = (
-    "segment_mfcc2_mean",
-    "segment_h1h2_mean",
-    "segment_f1_bandwidth_mean",
-    "segment_f0_mean",
+PHONEME_PROSODY_FEATURE_VALUE_FIELDS = tuple(
+    lld_value_field(name, stat)
+    for name in EGEMAPS_LLD_NAMES
+    for stat in AGGREGATE_STATS
 )
 
 PHONEME_PROSODY_FEATURE_QC_FIELDS = (

@@ -29,11 +29,11 @@ flowchart TD
 
     D -- "phoneme boundaries" --> I["Assign frames to phoneme windows"]
     H -- "LLD frames" --> I
-    I --> J["Aggregate per-phoneme features<br/>mfcc2 · h1h2 · f1_bandwidth · f0"]
+    I --> J["Aggregate per-phoneme features<br/>25 eGeMAPSv02 LLDs x mean/median/std (75 cols)<br/>_sma3nz voiced-only, _sma3 whole-segment"]
 
     G --> K["Compose phoneme row + QC"]
     J --> K
-    K --> M["Write Parquet<br/><b>prosody_phoneme_features.parquet</b>"]
+    K --> M["Write Parquet<br/><b>prosody_phoneme_features_v3.parquet</b>"]
 
     classDef join fill:#fef9c3,stroke:#ca8a04,color:#713f12;
     class I join;

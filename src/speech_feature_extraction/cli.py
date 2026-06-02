@@ -135,6 +135,49 @@ def main() -> None:
         help="Minimum LLD frames required for qc_segment_ok (default: 4).",
     )
 
+    hubert_parser = subparsers.add_parser(
+        "extract-phoneme-hubert",
+        help="[EXPERIMENTAL] Extract frozen-HuBERT phone embeddings and phonological-subspace d-prime.",
+    )
+    hubert_parser.add_argument(
+        "--audio-dir",
+        help=f"Directory containing prosody WAV files. Defaults to {DEFAULT_RAW_AUDIO_DIR}.",
+    )
+    hubert_parser.add_argument(
+        "--output-dir",
+        help=f"Output directory for HuBERT parquets. Defaults to {DEFAULT_EXPERIMENT_OUTPUT_DIR}.",
+    )
+    hubert_parser.add_argument(
+        "--phoneme-parquet",
+        help="Path to the eGeMAPS phoneme parquet providing MFA boundaries. "
+        "Defaults to <output-dir>/prosody_phoneme_features_v3.parquet.",
+    )
+    hubert_parser.add_argument(
+        "--model-name",
+        default="facebook/hubert-base-ls960",
+        help="HuggingFace SSL checkpoint (default: facebook/hubert-base-ls960).",
+    )
+    hubert_parser.add_argument(
+        "--layer",
+        type=int,
+        default=None,
+        help="Hidden layer index to read. Omit for the final hidden layer (paper default).",
+    )
+    hubert_parser.add_argument(
+        "--device",
+        help="torch device (e.g. cpu, cuda, mps). Defaults to cuda if available else cpu.",
+    )
+    hubert_parser.add_argument(
+        "--dprime-only",
+        action="store_true",
+        help="Skip embedding extraction and only recompute the d-prime table from an existing embeddings parquet.",
+    )
+    hubert_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-extract embeddings for all recordings even if already present.",
+    )
+
     args = parser.parse_args()
     _configure_logging(args.log_level)
     LOGGER.info("Starting command=%s", args.command)
@@ -195,6 +238,10 @@ def main() -> None:
 
     if args.command == "extract-phoneme-prosody":
         _run_phoneme_prosody_extraction(args)
+        return
+
+    if args.command == "extract-phoneme-hubert":
+        _run_phoneme_hubert_extraction(args)
         return
 
     parser.error(f"Unknown command: {args.command}")
@@ -397,6 +444,66 @@ def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
         )
     except Exception as error:
         LOGGER.warning("Unable to compute segment QC summary: %s", error)
+
+
+def _run_phoneme_hubert_extraction(args: argparse.Namespace) -> None:
+    """Run experimental HuBERT phonological-subspace extraction (data-prep only)."""
+    from speech_feature_extraction.phoneme_prosody_experiment.hubert_pipeline import (
+        build_dprime_table,
+        run_hubert_pipeline,
+    )
+    from speech_feature_extraction.phoneme_prosody_experiment.schema import (
+        HUBERT_DPRIME_FILENAME,
+        HUBERT_PHONE_EMBEDDINGS_FILENAME,
+        PHONEME_PROSODY_FEATURES_FILENAME,
+    )
+
+    audio_dir = Path(args.audio_dir) if args.audio_dir else DEFAULT_RAW_AUDIO_DIR
+    output_dir = Path(args.output_dir) if args.output_dir else DEFAULT_EXPERIMENT_OUTPUT_DIR
+    phoneme_parquet = (
+        Path(args.phoneme_parquet)
+        if args.phoneme_parquet
+        else output_dir / PHONEME_PROSODY_FEATURES_FILENAME
+    )
+
+    print("[EXPERIMENTAL] HuBERT phonological-subspace extraction")
+    print(f"Model: {args.model_name} (layer: {'final' if args.layer is None else args.layer})")
+    print(f"Output directory: {output_dir}")
+
+    if not phoneme_parquet.exists():
+        print(f"ERROR: phoneme parquet not found: {phoneme_parquet}")
+        print("Run 'extract-phoneme-prosody' first; it provides the MFA boundaries HuBERT reuses.")
+        return
+
+    try:
+        if args.dprime_only:
+            embeddings_path = output_dir / HUBERT_PHONE_EMBEDDINGS_FILENAME
+            if not embeddings_path.exists():
+                print(f"ERROR: embeddings parquet not found: {embeddings_path}")
+                return
+            dprime_path = build_dprime_table(
+                embeddings_path=embeddings_path,
+                output_path=output_dir / HUBERT_DPRIME_FILENAME,
+            )
+            print(f"d-prime table: {dprime_path}")
+            return
+
+        embeddings_path, dprime_path = run_hubert_pipeline(
+            output_dir=output_dir,
+            audio_dir=audio_dir,
+            phoneme_parquet=phoneme_parquet,
+            model_name=args.model_name,
+            layer=args.layer,
+            device=args.device,
+            force=args.force,
+        )
+    except ModuleNotFoundError as error:
+        print(f"ERROR: {error}")
+        return
+
+    print()
+    print(f"Phone embeddings: {embeddings_path}")
+    print(f"d-prime table: {dprime_path}")
 
 
 if __name__ == "__main__":

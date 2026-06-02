@@ -34,6 +34,8 @@ from speech_feature_extraction.phoneme_prosody_experiment.biomarkers import (
     summarize_phoneme_occurrence_stats,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.schema import (
+    HUBERT_DPRIME_FILENAME,
+    HUBERT_PHONE_EMBEDDINGS_FILENAME,
     PHONEME_PROSODY_ALIGNMENT_FIELDS,
     PHONEME_PROSODY_BOUNDARY_FIELDS,
     PHONEME_PROSODY_CONTEXT_FIELDS,
@@ -43,6 +45,19 @@ from speech_feature_extraction.phoneme_prosody_experiment.schema import (
     PHONEME_PROSODY_LINEAGE_FIELDS,
     PHONEME_PROSODY_RAINBOW_PROFILE_FIELDS,
     PHONEME_PROSODY_REQUIRED_FIELDS,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.hubert_phone_config import (
+    MIN_TOKENS_PER_CLASS,
+    PHONOLOGICAL_CONTRASTS,
+    PhonologicalContrast,
+    contrast_by_key,
+)
+from speech_feature_extraction.phoneme_prosody_experiment.hubert_dprime import (
+    compute_dprime_table,
+    dprime,
+    embedding_columns,
+    estimate_directions,
+    feature_direction,
 )
 from speech_feature_extraction.phoneme_prosody_experiment.rainbow_profile import (
     AlignedPhonemeSegment,
@@ -147,6 +162,8 @@ __all__ = [
     "summarize_phoneme_occurrence_stats",
     "summarize_segment_qc_stats",
     # Schema
+    "HUBERT_DPRIME_FILENAME",
+    "HUBERT_PHONE_EMBEDDINGS_FILENAME",
     "PHONEME_PROSODY_ALIGNMENT_FIELDS",
     "PHONEME_PROSODY_BOUNDARY_FIELDS",
     "PHONEME_PROSODY_CONTEXT_FIELDS",
@@ -156,6 +173,16 @@ __all__ = [
     "PHONEME_PROSODY_LINEAGE_FIELDS",
     "PHONEME_PROSODY_RAINBOW_PROFILE_FIELDS",
     "PHONEME_PROSODY_REQUIRED_FIELDS",
+    # HuBERT phonological subspace
+    "MIN_TOKENS_PER_CLASS",
+    "PHONOLOGICAL_CONTRASTS",
+    "PhonologicalContrast",
+    "contrast_by_key",
+    "compute_dprime_table",
+    "dprime",
+    "embedding_columns",
+    "estimate_directions",
+    "feature_direction",
     # Rainbow Profile
     "RainbowAlignmentSummary",
     "RainbowOccurrenceAlignment",
