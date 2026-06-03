@@ -10,27 +10,17 @@ flowchart LR
     APP["Mobile app<br/>daily voice tasks"] --> AW["Appwrite<br/>Storage + voice metadata"]
     AW --> WAV["SpeechFeatureExtraction<br/>downloads WAVs here"]
 
-    WAV --> CANON["Canonical acoustics<br/>openSMILE eGeMAPSv02<br/>daily vowel + prosody features"]
-    WAV --> PHON["Phoneme acoustics<br/>MFA boundaries + openSMILE frames<br/>phoneme-level feature table"]
-    WAV --> SSL["SSL representation check<br/>HuBERT phone embeddings<br/>phonological d-prime"]
+    WAV --> CANON["Whole-WAV acoustics<br/>openSMILE eGeMAPSv02<br/>daily vowel + prosody features"]
+    WAV --> GROUPS["Phoneme grouping layer<br/>MFA boundaries + articulatory taxonomy"]
+    WAV --> PHONES["Granular phoneme layer<br/>one acoustic row per aligned phoneme"]
 
     CANON --> ANALYSIS["Cycle analysis<br/>join voice + hormones + wearable context"]
-    PHON --> ANALYSIS
-    SSL --> ANALYSIS
+    GROUPS --> ANALYSIS
+    PHONES --> ANALYSIS
 
     CONTEXT["Physiology + context<br/>Inito hormones, Oura,<br/>cycle calendar"] --> ANALYSIS
 
     ANALYSIS --> OUT["Presentation outputs<br/>localization, controls,<br/>figures, mechanistic model"]
-
-    classDef source fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e;
-    classDef extraction fill:#fef9c3,stroke:#ca8a04,color:#713f12;
-    classDef analysis fill:#dcfce7,stroke:#16a34a,color:#14532d;
-    classDef output fill:#f3e8ff,stroke:#7e22ce,color:#581c87;
-
-    class APP,AW,CONTEXT source;
-    class WAV,CANON,PHON,SSL extraction;
-    class ANALYSIS analysis;
-    class OUT output;
 ```
 
 **Talk track:** the app captures repeated voice samples; Appwrite is the cloud
@@ -57,16 +47,6 @@ flowchart TD
     J --> K["Daily aggregation<br/>median by user + UTC day"]
     K --> L["voice_features_v4_daily.parquet<br/>vowel_egemaps_* + prosody_egemaps_*"]
     I --> AUDIT
-
-    classDef cloud fill:#e0f2fe,stroke:#0369a1,color:#0c4a6e;
-    classDef qc fill:#fee2e2,stroke:#dc2626,color:#7f1d1d;
-    classDef data fill:#dcfce7,stroke:#16a34a,color:#14532d;
-    classDef process fill:#fef9c3,stroke:#ca8a04,color:#713f12;
-
-    class A,B cloud;
-    class F,I,AUDIT qc;
-    class J,K,L data;
-    class C,D,E,G,H process;
 ```
 
 **What this diagram answers:** how a saved mobile recording becomes the
@@ -80,50 +60,50 @@ flowchart LR
     VoiceSource["Cached Appwrite WAVs + metadata<br/>vowel and connected-speech tasks"]
     PhaseContext["Shared phase context<br/>cycle calendar + Inito hormones + Oura"]
 
-    subgraph WholeRecording["STREAM 1: WHOLE-RECORDING / DAILY ACOUSTICS"]
+    subgraph WholeRecording["STREAM 1: WHOLE-WAV / DAILY ACOUSTICS"]
         direction TB
-        WholeExtract["openSMILE eGeMAPSv02 Functionals<br/>vowel + prosody recordings"]
+        WholeExtract["openSMILE eGeMAPSv02 Functionals<br/>full vowel + prosody WAVs"]
         WholeDaily["Daily feature table<br/>per-day median vowel_egemaps_*<br/>and prosody_egemaps_*"]
         WholeAnalysis["Broad cycle scan<br/>follicular vs luteal effects,<br/>PdG coupling, Oura cross-check"]
         WholeFinding["Finding<br/>coherent cycle signal;<br/>cover/timbre channels move most"]
         WholeExtract --> WholeDaily --> WholeAnalysis --> WholeFinding
     end
 
-    subgraph PhonemeGrain["STREAM 2: PHONEME-GRAIN ACOUSTICS"]
+    subgraph PhonemeGroups["STREAM 2: PHONEME GROUPINGS / TAXONOMY"]
         direction TB
-        PhonemeSubset["Clean connected-speech subset<br/>fixed Rainbow passage"]
-        PhonemeAlign["MFA forced alignment<br/>phone boundaries in TextGrid"]
-        PhonemeFeatures["openSMILE LLD frames<br/>assigned to phoneme windows"]
-        PhonemeAnalysis["Phoneme analyses<br/>global shifts, de-meaned residuals,<br/>within-recording contrasts"]
-        PhonemeFinding["Finding<br/>mostly global acoustic setting;<br/>diphthong + nasal residuals"]
-        PhonemeSubset --> PhonemeAlign --> PhonemeFeatures --> PhonemeAnalysis --> PhonemeFinding
+        GroupSubset["Clean connected-speech subset<br/>fixed Rainbow passage"]
+        GroupAlign["MFA forced alignment<br/>phone boundaries in TextGrid"]
+        GroupTaxonomy["Taxonomy labels<br/>manner, place, voicing,<br/>vowel class, nasal, diphthong"]
+        GroupAnalysis["Group-level localization<br/>compare interpretable phoneme classes<br/>across cycle phase"]
+        GroupFinding["Finding<br/>signal is broadly shared across classes;<br/>nasal + diphthong groups stand out"]
+        GroupSubset --> GroupAlign --> GroupTaxonomy --> GroupAnalysis --> GroupFinding
     end
 
-    subgraph SSLSubspace["STREAM 3: SSL PHONOLOGICAL SUBSPACE"]
+    subgraph GranularPhones["STREAM 3: GRANULAR PHONEME ROWS"]
         direction TB
-        SSLSubset["Same aligned connected-speech subset<br/>reuse MFA phone boundaries"]
-        SSLEmbeddings["Frozen speech embeddings<br/>HuBERT phone vectors<br/>with backbone robustness checks"]
-        SSLDPrime["D-prime by recording<br/>phonological contrast separability"]
-        SSLAnalysis["Phase + hormone checks<br/>contrast effects and profile stability"]
-        SSLFinding["Finding<br/>no broad phonological-subspace collapse"]
-        SSLSubset --> SSLEmbeddings --> SSLDPrime --> SSLAnalysis --> SSLFinding
+        PhoneSubset["Same aligned connected-speech subset<br/>fixed passage controls wording"]
+        PhoneFeatures["Per-phoneme acoustic table<br/>one row per aligned phoneme<br/>with QC + timing + features"]
+        PhoneControls["Granular controls<br/>per-recording de-meaning,<br/>F0 residualization, within-recording contrasts"]
+        PhoneAnalysis["Residual checks<br/>which individual phoneme effects remain<br/>after recording-level offsets are removed?"]
+        PhoneFinding["Finding<br/>dominant effect is global;<br/>bounded residual structure remains"]
+        PhoneSubset --> PhoneFeatures --> PhoneControls --> PhoneAnalysis --> PhoneFinding
     end
 
-    IntegratedModel["Integrated model<br/>progesterone-linked acoustic-surface shift<br/>mostly global across phoneme inventory<br/>with bounded residual structure"]
+    IntegratedModel["Integrated model<br/>progesterone-linked acoustic-surface shift<br/>visible at whole-WAV scale,<br/>organized by phoneme classes,<br/>and stress-tested at phoneme-row granularity"]
 
     VoiceSource --> WholeExtract
-    VoiceSource --> PhonemeSubset
-    VoiceSource --> SSLSubset
+    VoiceSource --> GroupSubset
+    VoiceSource --> PhoneSubset
 
     PhaseContext -.-> WholeAnalysis
-    PhaseContext -.-> PhonemeAnalysis
-    PhaseContext -.-> SSLAnalysis
+    PhaseContext -.-> GroupAnalysis
+    PhaseContext -.-> PhoneAnalysis
 
     WholeFinding --> IntegratedModel
-    PhonemeFinding --> IntegratedModel
-    SSLFinding --> IntegratedModel
+    GroupFinding --> IntegratedModel
+    PhoneFinding --> IntegratedModel
 ```
 
 **What this diagram answers:** how the project triangulates the same longitudinal
-voice source from three angles: broad interpretable acoustics, phoneme-level
-localization, and a self-supervised representation negative control.
+voice source from three interpretable angles: whole-WAV acoustics, phoneme
+grouping/taxonomy, and granular phoneme-row controls.
