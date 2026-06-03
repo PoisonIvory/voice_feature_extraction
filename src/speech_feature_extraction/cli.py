@@ -448,6 +448,9 @@ def _run_phoneme_prosody_extraction(args: argparse.Namespace) -> None:
 
 def _run_phoneme_hubert_extraction(args: argparse.Namespace) -> None:
     """Run experimental HuBERT phonological-subspace extraction (data-prep only)."""
+    from speech_feature_extraction.phoneme_prosody_experiment.hubert_extract import (
+        DEFAULT_MODEL_NAME,
+    )
     from speech_feature_extraction.phoneme_prosody_experiment.hubert_pipeline import (
         build_dprime_table,
         run_hubert_pipeline,
@@ -456,6 +459,8 @@ def _run_phoneme_hubert_extraction(args: argparse.Namespace) -> None:
         HUBERT_DPRIME_FILENAME,
         HUBERT_PHONE_EMBEDDINGS_FILENAME,
         PHONEME_PROSODY_FEATURES_FILENAME,
+        hubert_dprime_filename,
+        hubert_embeddings_filename,
     )
 
     audio_dir = Path(args.audio_dir) if args.audio_dir else DEFAULT_RAW_AUDIO_DIR
@@ -466,9 +471,22 @@ def _run_phoneme_hubert_extraction(args: argparse.Namespace) -> None:
         else output_dir / PHONEME_PROSODY_FEATURES_FILENAME
     )
 
+    # Canonical (unsuffixed) names for HuBERT-base; per-model names otherwise so
+    # additional backbones do not overwrite the HuBERT-base outputs.
+    is_default_model = args.model_name == DEFAULT_MODEL_NAME
+    embeddings_filename = (
+        HUBERT_PHONE_EMBEDDINGS_FILENAME
+        if is_default_model
+        else hubert_embeddings_filename(args.model_name)
+    )
+    dprime_filename = (
+        HUBERT_DPRIME_FILENAME if is_default_model else hubert_dprime_filename(args.model_name)
+    )
+
     print("[EXPERIMENTAL] HuBERT phonological-subspace extraction")
     print(f"Model: {args.model_name} (layer: {'final' if args.layer is None else args.layer})")
     print(f"Output directory: {output_dir}")
+    print(f"d-prime output: {dprime_filename}")
 
     if not phoneme_parquet.exists():
         print(f"ERROR: phoneme parquet not found: {phoneme_parquet}")
@@ -477,13 +495,13 @@ def _run_phoneme_hubert_extraction(args: argparse.Namespace) -> None:
 
     try:
         if args.dprime_only:
-            embeddings_path = output_dir / HUBERT_PHONE_EMBEDDINGS_FILENAME
+            embeddings_path = output_dir / embeddings_filename
             if not embeddings_path.exists():
                 print(f"ERROR: embeddings parquet not found: {embeddings_path}")
                 return
             dprime_path = build_dprime_table(
                 embeddings_path=embeddings_path,
-                output_path=output_dir / HUBERT_DPRIME_FILENAME,
+                output_path=output_dir / dprime_filename,
             )
             print(f"d-prime table: {dprime_path}")
             return
@@ -496,6 +514,8 @@ def _run_phoneme_hubert_extraction(args: argparse.Namespace) -> None:
             layer=args.layer,
             device=args.device,
             force=args.force,
+            embeddings_filename=embeddings_filename,
+            dprime_filename=dprime_filename,
         )
     except ModuleNotFoundError as error:
         print(f"ERROR: {error}")

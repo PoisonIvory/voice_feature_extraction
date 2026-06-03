@@ -4,9 +4,31 @@ PHONEME_PROSODY_EXPERIMENT_DATA_ROOT = "data/experimental/phoneme_prosody"
 PHONEME_PROSODY_FEATURES_FILENAME = "prosody_phoneme_features_v3.parquet"
 
 # HuBERT phonological-subspace experiment outputs (parallel to the eGeMAPS
-# phoneme features, sharing the same MFA boundaries).
+# phoneme features, sharing the same MFA boundaries). The unsuffixed names are
+# the canonical HuBERT-base outputs; additional frozen backbones are written to
+# per-model suffixed names so they can share the same MFA boundaries without
+# clobbering each other (see the *_for_model helpers below).
 HUBERT_PHONE_EMBEDDINGS_FILENAME = "hubert_phone_embeddings.parquet"
 HUBERT_DPRIME_FILENAME = "hubert_dprime_by_recording.parquet"
+
+
+def hubert_model_slug(model_name: str) -> str:
+    """Filesystem-safe slug for an SSL checkpoint id (its last path component).
+
+    ``microsoft/wavlm-base`` -> ``wavlm-base``. Lets the multi-backbone
+    robustness check name its outputs per model.
+    """
+    return model_name.rsplit("/", 1)[-1]
+
+
+def hubert_embeddings_filename(model_name: str) -> str:
+    """Per-backbone phone-embeddings parquet filename for ``model_name``."""
+    return f"hubert_phone_embeddings__{hubert_model_slug(model_name)}.parquet"
+
+
+def hubert_dprime_filename(model_name: str) -> str:
+    """Per-backbone d-prime-by-recording parquet filename for ``model_name``."""
+    return f"hubert_dprime__{hubert_model_slug(model_name)}.parquet"
 
 # Canonical eGeMAPSv02 Low-Level Descriptor names (openSMILE order).
 EGEMAPS_LLD_NAMES = (

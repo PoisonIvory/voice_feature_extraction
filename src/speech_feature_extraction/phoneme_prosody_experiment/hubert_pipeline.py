@@ -173,8 +173,15 @@ def run_hubert_pipeline(
     layer: int | None = None,
     device: str | None = None,
     force: bool = False,
+    embeddings_filename: str = HUBERT_PHONE_EMBEDDINGS_FILENAME,
+    dprime_filename: str = HUBERT_DPRIME_FILENAME,
 ) -> tuple[Path, Path]:
-    """Run both layers; returns (embeddings_path, dprime_path)."""
+    """Run both layers; returns (embeddings_path, dprime_path).
+
+    ``embeddings_filename`` / ``dprime_filename`` default to the canonical
+    HuBERT-base outputs; the multi-backbone robustness check overrides them with
+    per-model names so each frozen backbone keeps its own parquet.
+    """
     output_dir.mkdir(parents=True, exist_ok=True)
     phoneme_parquet = phoneme_parquet or output_dir / PHONEME_PROSODY_FEATURES_FILENAME
     phoneme_df = load_aligned_phonemes(phoneme_parquet)
@@ -188,13 +195,13 @@ def run_hubert_pipeline(
     embeddings_path = build_phone_embeddings(
         phoneme_df=phoneme_df,
         audio_dir=audio_dir,
-        output_path=output_dir / HUBERT_PHONE_EMBEDDINGS_FILENAME,
+        output_path=output_dir / embeddings_filename,
         extractor=extractor,
         force=force,
     )
     dprime_path = build_dprime_table(
         embeddings_path=embeddings_path,
-        output_path=output_dir / HUBERT_DPRIME_FILENAME,
+        output_path=output_dir / dprime_filename,
     )
     return embeddings_path, dprime_path
 
